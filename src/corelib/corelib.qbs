@@ -81,6 +81,7 @@ QtModuleProject {
             Depends { name: product.mkspecModule; condition: product.mkspecModule !== undefined }
 
             property stringList generatedHeadersDir: importingProduct.buildDirectory + "/qt.headers"
+            property string examplesInstallDir: "examples"
 
             property path resourceSourceBase
             property string resourcePrefix: "/"

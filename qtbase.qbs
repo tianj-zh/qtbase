@@ -65,7 +65,7 @@ Project {
     property string qtbaseDir: path
 
     references: [
-        // "examples/examples.qbs",
+        "examples/examples-all.qbs",
         "qmake/qmake.qbs",
         "src/src.qbs",
         "tests/tests.qbs",
