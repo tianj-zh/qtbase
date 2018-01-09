@@ -57,6 +57,7 @@ QtModuleProject {
     QtModuleTracepoints {}
 
     QtModule {
+        qt_module_pri.config: ["moc", "resources"]
         Properties {
             condition: createPkgconfigFiles
             Exporter.pkgconfig.transformFunction: (function (product, moduleName, propertyName, value) {
@@ -64,6 +65,10 @@ QtModuleProject {
                     return undefined;
                 return value;
             })
+        }
+        Properties {
+            condition: config.std_atomic64
+            qt_module_pri.uses: "libatomic"
         }
 
         Export {

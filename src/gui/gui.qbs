@@ -61,6 +61,11 @@ QtModuleProject {
         //       to the respective group or remove this and adapt the name in qbrush.cpp.
         Qt.core.resourceFileBaseName: "qmake_webgradients"
 
+        Properties {
+            condition: QtGuiConfig.opengl
+            qt_module_pri.config: "opengl"
+        }
+
         Group {
             name: "Qt accessibility module"
             condition: QtGuiConfig.accessibility
@@ -885,8 +890,6 @@ QtModuleProject {
 }
 
 /*
-
-qtConfig(opengl.*): MODULE_CONFIG = opengl
 
 QMAKE_DOCS = $$PWD/doc/qtgui.qdocconf
 

@@ -23,3 +23,71 @@ function qmakeMkspecToQbsModule(qmakeMkspec)
     if (qmakeMkspec === "devices/linux-rasp-pi3-g++")
         return "Mkspec.rasp_pi3";
 }
+
+function qmakeQuote(val)
+{
+    if (Array.isArray(val))
+        return val.map(function(v) { return qmakeQuote(v); });
+    var ret = "";
+    if (!val)
+        val = "";
+    var l = val.length;
+    var quote = l === 0;
+    var escaping = false;
+    for (var i = 0; i < l; i++) {
+        var c = val[i];
+        var uc = val.charCodeAt(i);
+        if (uc < 32) {
+            if (!escaping) {
+                escaping = true;
+                ret += "$$escape_expand(";
+            }
+            switch (uc) {
+            case '\r':
+                ret += "\\\\r";
+                break;
+            case '\n':
+                ret += "\\\\n";
+                break;
+            case '\t':
+                ret += "\\\\t";
+                break;
+            default:
+                ret += uc.toString(16);
+                break;
+            }
+        } else {
+            if (escaping) {
+                escaping = false;
+                ret += ')';
+            }
+            switch (c) {
+            case '\\':
+                ret += "\\\\";
+                break;
+            case '"':
+                ret += "\\\"";
+                break;
+            case '\'':
+                ret += "\\'";
+                break;
+            case '$':
+                ret += "\\$";
+                break;
+            case '#':
+                ret += "$${LITERAL_HASH}";
+                break;
+            case ' ':
+                quote = true; // Fall-through
+            default:
+                ret += c;
+                break;
+            }
+        }
+    }
+    if (escaping)
+        ret += ')';
+    if (quote)
+        ret = '"' + ret + '"';
+    return ret;
+}

@@ -74,6 +74,9 @@ QtModuleProject {
             condition: qbs.toolchain.contains("msvc") && qbs.architecture === "x86"
             cpp.linkerFlags: base.concat("/BASE:0x65000000")
         }
+
+        qt_module_pri.config: "uic"
+
         SrcKernel { }
         SrcStyles { }
         SrcWidgets { }
@@ -87,7 +90,6 @@ QtModuleProject {
     }
 }
 /*
-MODULE_CONFIG = uic
 
 CONFIG += $$MODULE_CONFIG
 irix-cc*:QMAKE_CXXFLAGS += -no_prelink -ptused

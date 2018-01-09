@@ -25,7 +25,7 @@ QtModuleProject {
 
         /* TODO:
            CONFIG += gc_binaries
-           MODULE_CONFIG = gc_binaries
+
          */
 /* TODO. Possibly move to more generic place
     QMAKE_CFLAGS += $$QMAKE_CFLAGS_SPLIT_SECTIONS
@@ -79,6 +79,8 @@ QtModuleProject {
                 "user32",
             ]
         }
+
+        qt_module_pri.config: "gc_binaries"
 
         Group {
             name: "sources"

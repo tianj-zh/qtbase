@@ -10,15 +10,23 @@ QtProduct {
     version: project.version
     condition: project.conditionFunction(qbs)
 
+    qbsSearchPaths: FileInfo.joinPaths(project.qtbaseShadowDir, "src", FileInfo.fileName(sourceDirectory),  "qbs");
+
     property var config: project.config
     property var privateConfig: project.privateConfig
     property string simpleName: project.simpleName
     property string upperCaseSimpleName: simpleName.replace("_private", "").toUpperCase()
     targetName: "Qt" + (!bundle.isBundle ? "5" : "") + project.name.slice(2)
 
+    // TODO: This belongs into a module in qbs itself
+    property stringList winrtCapabilities
+    property stringList winrtCapabilitiesDevice
+
     Depends { name: project.tracepointsProductName; required: false }
     Depends { name: "qt_sse2"; condition: !hostBuild }
     Depends { name: "qt_common_libs_plugins" }
+
+    Depends { name: "qt_module_pri" }
 
 // TODO: For Windows: qt_targets.prf
 
@@ -99,13 +107,6 @@ QtProduct {
 // TODO: Concept of an "internal module" (platform support, platform plugin, bootstrap*, qtzlib)
 
 // darwin:!no_app_extension_api_only: CONFIG += app_extension_api_only
-
-/*
-integrity:CONFIG(exceptions, exceptions|exceptions_off): \
-    MODULE_CONFIG += exceptions
-*/
-
-// TODO: Generate .pri file. Logic is in qt_module_pri.prf
 
 // contains(QT_PRODUCT, OpenSource.*):DEFINES *= QT_OPENSOURCE
 

@@ -98,6 +98,8 @@ QtModuleProject {
             ]
         }
 
+        qt_module_pri.config: ["dbusadaptors", "dbusinterfaces"]
+
         Group {
             name: "public headers"
             files: [
@@ -185,8 +187,3 @@ QtModuleProject {
         }
     }
 }
-
-/*
-MODULE_CONFIG = dbusadaptors dbusinterfaces
-
-*/

@@ -2254,6 +2254,33 @@ for (currentConfig, allConfigs) {
                            "[$$jsList($$eval(QT.$${currentModule}_private.enabled_features))]")
     qtConfOutputSetQbsProp("privateQbs", "disabled_features", \
                            "[$$jsList($$eval(QT.$${currentModule}_private.disabled_features))]")
+    qtConfOutputSetQbsProp("publicQbs", "qtConfig", \
+                           "[$$jsList($$eval($${currentConfig}.output.publicPro.assign.QT.$${currentModule}.QT_CONFIG))]")
+    qtConfOutputSetQbsProp("privateQbs", "qtConfig", \
+                           "[$$jsList($$eval($${currentConfig}.output.privatePro.assign.QT.$${currentModule}.QT_CONFIG))]")
+    libsMap = "{"
+    theLibs = $$eval($${currentConfig}.output.privatePro.assign.QT.$${currentModule}_private.libraries)
+    for (lib, theLibs) {
+        NAME = $$upper($$lib)
+        libsMap += "$$lib: {"
+        libsMap += "libs: [$$jsList($$eval($${currentConfig}.output.privatePro.assign.QMAKE_LIBS_$$NAME))],"
+        libsMap += "releaseLibs: [$$jsList($$eval($${currentConfig}.output.privatePro.assign.QMAKE_LIBS_$$NAME_RELEASE))],"
+        libsMap += "debugLibs: [$$jsList($$eval($${currentConfig}.output.privatePro.assign.QMAKE_LIBS_$$NAME_DEBUG))],"
+        libsMap += "includes: [$$jsList($$eval($${currentConfig}.output.privatePro.assign.QMAKE_INCDIR_$$NAME))],"
+        libsMap += "defines: [$$jsList($$eval($${currentConfig}.output.privatePro.assign.QMAKE_DEFINES_$$NAME))],"
+        libsMap += "},"
+    }
+    libsMap += "}"
+    qtConfOutputSetQbsProp("privateQbs", "libsMap", $$libsMap)
+
+    exportsMap = "{"
+    theExports = $$eval($${currentConfig}.output.publicPro.assign.QT.$${currentModule}.exports)
+    for (exportVal, theExports) {
+        exportsMap += "$$exportVal: \"$$eval($${currentConfig}.output.publicPro.assign.$$exportVal)\"," # TODO: How to find out the type?
+    }
+    exportsMap += "}"
+    qtConfOutputSetQbsProp("publicQbs", "exportsMap", $$exportsMap)
+
     equals(currentModule, global) {
         qtConfOutputSetQbsProp(privateQbs, targetMkspec, \"$$[QMAKE_XSPEC]\")
         qtConfOutputSetQbsProp(privateQbs, hostMkspec, \"$$[QMAKE_SPEC]\")

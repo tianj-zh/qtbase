@@ -21,6 +21,8 @@ QtModuleProject {
     }
 
     QtPrivateModule {
+        qt_module_pri.uses: config.openssl_linked
+                            ? ["openssl"] : config.openssl ? ["openssl/nolink"] : []
     }
 
     QtModule {
@@ -70,6 +72,7 @@ QtModuleProject {
         }
         cpp.defines: base.concat(["QT_NO_USING_NAMESPACE", "QT_NO_FOREACH"],
                                  useLocalSocketTCP ? ["QT_LOCALSOCKET_TCP"] : [])
+        winrtCapabilities: ["internetClient", "internetClientServer", "privateNetworkClientServer"]
 
         Depends { name: "moc" }
         Properties {
@@ -549,10 +552,6 @@ QtModuleProject {
                 }
 
                 /*
-        qtConfig(openssl-linked): \
-            QMAKE_USE_FOR_PRIVATE += openssl
-        else: \
-            QMAKE_USE_FOR_PRIVATE += openssl/nolink
         win32: LIBS_PRIVATE += -lcrypt32
                   */
             }
@@ -579,11 +578,6 @@ qtConfig(bearermanagement) {
     ANDROID_PERMISSIONS += \
         android.permission.ACCESS_NETWORK_STATE
 }
-
-MODULE_WINRT_CAPABILITIES = \
-    internetClient \
-    internetClientServer \
-    privateNetworkClientServer
 
 MODULE_PLUGIN_TYPES = \
     bearer
