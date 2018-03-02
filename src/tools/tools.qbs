@@ -10,7 +10,7 @@ Project {
         "qdbuscpp2xml/qdbuscpp2xml.qbs",
         "qdbusxml2cpp/qdbusxml2cpp.qbs",
         "qfloat16-tables/qfloat16-tables.qbs",
-        // "qlalr/qlalr.qbs",
+        "qlalr/qlalr.qbs",
         "rcc/rcc.qbs",
         "uic/uic.qbs",
     ]
