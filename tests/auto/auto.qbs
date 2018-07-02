@@ -2,7 +2,6 @@ import qbs
 
 QtAutotestProject {
     name: "qtbase_tests"
-
     references: [
         "corelib",
   //      "dbus",

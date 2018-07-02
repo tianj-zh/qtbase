@@ -15,6 +15,7 @@ QtProduct {
     property bool builtinTestData: targetsUWP || hasUiKit || qbs.targetOS.contains("android")
     property bool doInstall: true
     property string installDir: FileInfo.joinPaths("tests", name)
+    property string testDataInstallDir: installDir
     property bool insignificant: false
     property bool haveAutotestModule: Utilities.versionCompare(qbs.version, "1.13") > 0
 
@@ -63,14 +64,14 @@ QtProduct {
         condition: !builtinTestData
         fileTagsFilter: "qt.testdata"
         qbs.install: true
-        qbs.installDir: installDir
+        qbs.installDir: testDataInstallDir
         qbs.installSourceBase: sourceDirectory
     }
     Group {
         condition: !builtinTestData
         fileTagsFilter: "qt.generated_testdata"
         qbs.install: true
-        qbs.installDir: installDir
+        qbs.installDir: testDataInstallDir
     }
     Group {
         condition: builtinTestData

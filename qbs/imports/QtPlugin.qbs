@@ -1,5 +1,6 @@
 import qbs
 import qbs.FileInfo
+import QtGlobalConfig
 
 QtProduct {
     type: [Qt.global.config.staticBuild ? "staticlibrary" : "dynamiclibrary"]
@@ -32,5 +33,9 @@ QtProduct {
         qbs.install: !Qt.global.config.staticBuild
         qbs.installDir: product.installDir
         qbs.installSourceBase: product.buildDirectory
+    }
+
+    Export {
+        Parameters { cpp.link: QtGlobalConfig.staticBuild }
     }
 }

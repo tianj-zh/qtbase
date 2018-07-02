@@ -2,7 +2,7 @@ import qbs
 
 QtAutotestProject {
     name: "corelib_tests"
-
+    qbsSearchPaths: qtbaseShadowDir + "/src/corelib/qbs"
     references: [
         "animation",
         "codecs",
@@ -11,7 +11,7 @@ QtAutotestProject {
         "itemmodels",
         "kernel",
         "mimetypes",
-        // "plugin",
+        "plugin",
         "statemachine",
         // "thread",
         // "tools",
