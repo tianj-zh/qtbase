@@ -23,7 +23,7 @@ QtProduct {
     Depends { name: "Qt.testlib" }
     Depends { name: "Qt.global" }
 
-    Depends { productTypes: "autotest-helper" }
+    Depends { productTypes: "autotest-helper"; limitToSubProject: true }
 
     Depends { name: "autotest"; condition: haveAutotestModule }
     Properties {
