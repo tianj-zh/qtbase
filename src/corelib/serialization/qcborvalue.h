@@ -51,7 +51,13 @@
 #include <QtCore/qvariant.h>
 #include <QtCore/qvector.h>
 
-#if QT_HAS_INCLUDE(<compare>)
+// See qcborcommon.h for why we check
+#if defined(QT_X11_DEFINES_FOUND)
+#  undef True
+#  undef False
+#endif
+
+#if 0 && QT_HAS_INCLUDE(<compare>)
 #  include <compare>
 #endif
 
@@ -139,7 +145,9 @@ public:
     QT_ASCII_CAST_WARN QCborValue(const char *s) : QCborValue(QString::fromUtf8(s)) {}
 #endif
     QCborValue(const QCborArray &a);
+    QCborValue(QCborArray &&a);
     QCborValue(const QCborMap &m);
+    QCborValue(QCborMap &&m);
     QCborValue(QCborTag tag, const QCborValue &taggedValue = QCborValue());
     QCborValue(QCborKnownTags t_, const QCborValue &tv = QCborValue())
         : QCborValue(QCborTag(t_), tv)
@@ -156,14 +164,14 @@ public:
     QCborValue(const void *) = delete;
 
     QCborValue(const QCborValue &other);
-    QCborValue(QCborValue &&other) Q_DECL_NOTHROW
+    QCborValue(QCborValue &&other) noexcept
         : n(other.n), container(other.container), t(other.t)
     {
         other.t = Undefined;
         other.container = nullptr;
     }
     QCborValue &operator=(const QCborValue &other);
-    QCborValue &operator=(QCborValue &&other) Q_DECL_NOTHROW
+    QCborValue &operator=(QCborValue &&other) noexcept
     {
         QCborValue tmp;
         qSwap(*this, tmp);
@@ -171,7 +179,7 @@ public:
         return *this;
     }
 
-    void swap(QCborValue &other) Q_DECL_NOTHROW
+    void swap(QCborValue &other) noexcept
     {
         qSwap(n, other.n);
         qSwap(container, other.container);
@@ -184,7 +192,7 @@ public:
     bool isString() const       { return type() == String; }
     bool isArray() const        { return type() == Array; }
     bool isMap() const          { return type() == Map; }
-    bool isTag() const          { return type() == Tag; }
+    bool isTag() const          { return isTag_helper(type()); }
     bool isFalse() const        { return type() == False; }
     bool isTrue() const         { return type() == True; }
     bool isBool() const         { return isFalse() || isTrue(); }
@@ -220,7 +228,6 @@ public:
 
     QCborTag tag(QCborTag defaultValue = QCborTag(-1)) const;
     QCborValue taggedValue(const QCborValue &defaultValue = QCborValue()) const;
-    QCborValue reinterpretAsTag() const;
 
     QByteArray toByteArray(const QByteArray &defaultValue = {}) const;
     QString toString(const QString &defaultValue = {}) const;
@@ -245,7 +252,7 @@ public:
     const QCborValue operator[](qint64 key) const;
 
     int compare(const QCborValue &other) const;
-#if QT_HAS_INCLUDE(<compare>)
+#if 0 && QT_HAS_INCLUDE(<compare>)
     std::strong_ordering operator<=>(const QCborValue &other) const
     {
         int c = compare(other);
@@ -254,9 +261,9 @@ public:
         return std::partial_ordering::less;
     }
 #else
-    bool operator==(const QCborValue &other) const Q_DECL_NOTHROW
+    bool operator==(const QCborValue &other) const noexcept
     { return compare(other) == 0; }
-    bool operator!=(const QCborValue &other) const Q_DECL_NOTHROW
+    bool operator!=(const QCborValue &other) const noexcept
     { return !(*this == other); }
     bool operator<(const QCborValue &other) const
     { return compare(other) < 0; }
@@ -303,6 +310,11 @@ private:
     {
         return Type(quint8(st) | SimpleType);
     }
+
+    Q_DECL_CONSTEXPR static bool isTag_helper(Type t)
+    {
+        return t == Tag || t >= 0x10000;
+    }
 };
 Q_DECLARE_SHARED(QCborValue)
 
@@ -311,8 +323,14 @@ class Q_CORE_EXPORT QCborValueRef
 public:
     operator QCborValue() const     { return concrete(); }
 
-    QCborValueRef &operator=(const QCborValue &other);
-    QCborValueRef &operator=(const QCborValueRef &other);
+    QCborValueRef(const QCborValueRef &) noexcept = default;
+    QCborValueRef(QCborValueRef &&) noexcept = default;
+    QCborValueRef &operator=(const QCborValue &other)
+    { assign(*this, other); return *this; }
+    QCborValueRef &operator=(QCborValue &&other)
+    { assign(*this, std::move(other)); other.container = nullptr; return *this; }
+    QCborValueRef &operator=(const QCborValueRef &other)
+    { assign(*this, other); return *this; }
 
     QCborValue::Type type() const   { return concreteType(); }
     bool isInteger() const          { return type() == QCborValue::Integer; }
@@ -320,7 +338,7 @@ public:
     bool isString() const           { return type() == QCborValue::String; }
     bool isArray() const            { return type() == QCborValue::Array; }
     bool isMap() const              { return type() == QCborValue::Map; }
-    bool isTag() const              { return type() == QCborValue::Tag; }
+    bool isTag() const              { return QCborValue::isTag_helper(type()); }
     bool isFalse() const            { return type() == QCborValue::False; }
     bool isTrue() const             { return type() == QCborValue::True; }
     bool isBool() const             { return isFalse() || isTrue(); }
@@ -380,7 +398,7 @@ public:
 
     int compare(const QCborValue &other) const
     { return concrete().compare(other); }
-#if QT_HAS_INCLUDE(<compare>)
+#if 0 && QT_HAS_INCLUDE(<compare>)
     std::strong_ordering operator<=>(const QCborValue &other) const
     {
         int c = compare(other);
@@ -414,11 +432,14 @@ private:
     friend class QCborValueRefPtr;
 
     // static so we can pass this by value
-    static QCborValue concrete(QCborValueRef that) Q_DECL_NOTHROW;
-    QCborValue concrete() const Q_DECL_NOTHROW  { return concrete(*this); }
+    static void assign(QCborValueRef that, const QCborValue &other);
+    static void assign(QCborValueRef that, QCborValue &&other);
+    static void assign(QCborValueRef that, const QCborValueRef other);
+    static QCborValue concrete(QCborValueRef that) noexcept;
+    QCborValue concrete() const noexcept  { return concrete(*this); }
 
-    static QCborValue::Type concreteType(QCborValueRef self) Q_DECL_NOTHROW Q_DECL_PURE_FUNCTION;
-    QCborValue::Type concreteType() const Q_DECL_NOTHROW { return concreteType(*this); }
+    static QCborValue::Type concreteType(QCborValueRef self) noexcept Q_DECL_PURE_FUNCTION;
+    QCborValue::Type concreteType() const noexcept { return concreteType(*this); }
 
     // this will actually be invalid...
     Q_DECL_CONSTEXPR QCborValueRef() : d(nullptr), i(0) {}
@@ -430,6 +451,15 @@ private:
     qsizetype i;
 };
 
+#if !defined(QT_NO_DEBUG_STREAM)
+Q_CORE_EXPORT QDebug operator<<(QDebug, const QCborValue &v);
+#endif
+
 QT_END_NAMESPACE
+
+#if defined(QT_X11_DEFINES_FOUND)
+#  define True  1
+#  define False 0
+#endif
 
 #endif // QCBORVALUE_H

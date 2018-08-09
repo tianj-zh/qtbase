@@ -781,8 +781,6 @@ void tst_QDockWidget::restoreDockWidget()
     QByteArray geometry;
     QByteArray state;
 
-    const bool isXcb = !QGuiApplication::platformName().compare("xcb", Qt::CaseInsensitive);
-
     const QString name = QStringLiteral("main");
     const QRect availableGeometry = QGuiApplication::primaryScreen()->availableGeometry();
     const QSize size = availableGeometry.size() / 5;
@@ -815,8 +813,7 @@ void tst_QDockWidget::restoreDockWidget()
         dock->show();
         QVERIFY(QTest::qWaitForWindowExposed(dock));
         QTRY_VERIFY(dock->isFloating());
-        if (!isXcb) // Avoid Window manager positioning issues
-            QTRY_COMPARE(dock->pos(), dockPos);
+        QTRY_COMPARE(dock->pos(), dockPos);
     }
 
     QVERIFY(!geometry.isEmpty());
@@ -837,8 +834,6 @@ void tst_QDockWidget::restoreDockWidget()
         restoreWindow.show();
         QVERIFY(QTest::qWaitForWindowExposed(&restoreWindow));
         QTRY_VERIFY(dock->isFloating());
-        if (isXcb)
-            QSKIP("Skip due to Window manager positioning issues", Abort);
         QTRY_COMPARE(dock->pos(), dockPos);
     }
 }
@@ -892,6 +887,9 @@ void tst_QDockWidget::task169808_setFloating()
     mw.show();
     QVERIFY(QTest::qWaitForWindowExposed(&mw));
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Widgets are maximized on WinRT by default", Abort);
+#endif
     QCOMPARE(dw->widget()->size(), dw->widget()->sizeHint());
 
     //and now we try to test if the contents margin is taken into account
@@ -934,6 +932,9 @@ void tst_QDockWidget::task248604_infiniteResize()
     d.setContentsMargins(2, 2, 2, 2);
     d.setMinimumSize(320, 240);
     d.showNormal();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Widgets are maximized on WinRT by default", Abort);
+#endif
     QTRY_COMPARE(d.size(), QSize(320, 240));
 }
 

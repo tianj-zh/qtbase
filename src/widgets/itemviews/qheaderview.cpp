@@ -2727,7 +2727,7 @@ void QHeaderView::mouseMoveEvent(QMouseEvent *e)
                     statusTip = d->model->headerData(logical, d->orientation, Qt::StatusTipRole).toString();
                 if (d->shouldClearStatusTip || !statusTip.isEmpty()) {
                     QStatusTipEvent tip(statusTip);
-                    QCoreApplication::sendEvent(d->parent, &tip);
+                    QCoreApplication::sendEvent(d->parent ? d->parent : this, &tip);
                     d->shouldClearStatusTip = !statusTip.isEmpty();
                 }
 #endif // !QT_NO_STATUSTIP
@@ -3834,6 +3834,7 @@ void QHeaderViewPrivate::cascadingResize(int visual, int newSize)
 void QHeaderViewPrivate::setDefaultSectionSize(int size)
 {
     Q_Q(QHeaderView);
+    size = qBound(q->minimumSectionSize(), size, q->maximumSectionSize());
     executePostedLayout();
     invalidateCachedSizeHint();
     defaultSectionSize = size;

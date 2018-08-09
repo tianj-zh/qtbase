@@ -55,7 +55,6 @@ class tst_QObject : public QObject
 {
     Q_OBJECT
 private slots:
-    void initTestCase();
     void disconnect();
     void connectSlotsByName();
     void connectSignalsToSignalsWithDefaultArguments();
@@ -281,14 +280,6 @@ static void playWithObjects()
         QObject::connect(&lotsOfObjects[i], &SenderObject::signal1,
                          &lotsOfObjects[i], &SenderObject::aPublicSlot);
     }
-}
-
-void tst_QObject::initTestCase()
-{
-#if QT_CONFIG(process)
-    const QString testDataDir = QFileInfo(QFINDTESTDATA("signalbug")).absolutePath();
-    QVERIFY2(QDir::setCurrent(testDataDir), qPrintable("Could not chdir to " + testDataDir));
-#endif
 }
 
 void tst_QObject::disconnect()
@@ -2977,6 +2968,7 @@ void tst_QObject::dynamicProperties()
 
     QVERIFY(obj.dynamicPropertyNames().isEmpty());
 
+    // set a non-dynamic property
     QVERIFY(obj.setProperty("number", 42));
     QVERIFY(obj.changedDynamicProperties.isEmpty());
     QCOMPARE(obj.property("number").toInt(), 42);
@@ -2984,19 +2976,30 @@ void tst_QObject::dynamicProperties()
     QVERIFY(!obj.setProperty("number", "invalid string"));
     QVERIFY(obj.changedDynamicProperties.isEmpty());
 
+    // set a dynamic property
     QVERIFY(!obj.setProperty("myuserproperty", "Hello"));
     QCOMPARE(obj.changedDynamicProperties.count(), 1);
     QCOMPARE(obj.changedDynamicProperties.first(), QByteArray("myuserproperty"));
     //check if there is no redundant DynamicPropertyChange events
     QVERIFY(!obj.setProperty("myuserproperty", "Hello"));
     QCOMPARE(obj.changedDynamicProperties.count(), 1);
-    obj.changedDynamicProperties.clear();
 
+    QCOMPARE(obj.property("myuserproperty").type(), QVariant::String);
     QCOMPARE(obj.property("myuserproperty").toString(), QString("Hello"));
 
     QCOMPARE(obj.dynamicPropertyNames().count(), 1);
     QCOMPARE(obj.dynamicPropertyNames().first(), QByteArray("myuserproperty"));
 
+    // change type of the dynamic property
+    obj.changedDynamicProperties.clear();
+    QVERIFY(!obj.setProperty("myuserproperty", QByteArray("Hello")));
+    QCOMPARE(obj.changedDynamicProperties.count(), 1);
+    QCOMPARE(obj.changedDynamicProperties.first(), QByteArray("myuserproperty"));
+    QCOMPARE(obj.property("myuserproperty").type(), QVariant::ByteArray);
+    QCOMPARE(obj.property("myuserproperty").toString(), QByteArray("Hello"));
+
+    // unset the property
+    obj.changedDynamicProperties.clear();
     QVERIFY(!obj.setProperty("myuserproperty", QVariant()));
 
     QCOMPARE(obj.changedDynamicProperties.count(), 1);
@@ -3015,7 +3018,7 @@ void tst_QObject::recursiveSignalEmission()
 #else
     QProcess proc;
     // signalbug helper app should always be next to this test binary
-    const QString path = QStringLiteral("signalbug/signalbug");
+    const QString path = QStringLiteral("signalbug_helper");
     proc.start(path);
     QVERIFY2(proc.waitForStarted(), qPrintable(QString::fromLatin1("Cannot start '%1': %2").arg(path, proc.errorString())));
     QVERIFY(proc.waitForFinished());

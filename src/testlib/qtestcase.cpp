@@ -60,6 +60,8 @@
 #include <QtCore/qwaitcondition.h>
 #include <QtCore/qmutex.h>
 
+#include <QtCore/qtestsupport_core.h>
+
 #include <QtTest/private/qtestlog_p.h>
 #include <QtTest/private/qtesttable_p.h>
 #include <QtTest/qtestdata.h>
@@ -85,7 +87,6 @@
 
 #if defined(Q_OS_LINUX)
 #include <sys/types.h>
-#include <unistd.h>
 #include <fcntl.h>
 #endif
 
@@ -99,6 +100,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <time.h>
+#include <unistd.h>
 # if !defined(Q_OS_INTEGRITY)
 #  include <sys/resource.h>
 # endif
@@ -1470,8 +1472,13 @@ void FatalSignalHandler::signal(int signum)
 {
     const int msecsFunctionTime = qRound(QTestLog::msecsFunctionTime());
     const int msecsTotalTime = qRound(QTestLog::msecsTotalTime());
-    if (signum != SIGINT)
+    if (signum != SIGINT) {
         stackTrace();
+        if (qEnvironmentVariableIsSet("QTEST_PAUSE_ON_CRASH")) {
+            fprintf(stderr, "Pausing process %d for debugging\n", getpid());
+            raise(SIGSTOP);
+        }
+    }
     qFatal("Received signal %d\n"
            "         Function time: %dms Total time: %dms",
            signum, msecsFunctionTime, msecsTotalTime);
@@ -1634,8 +1641,10 @@ DebugSymbolResolver::DebugSymbolResolver(HANDLE process)
     bool success = false;
     m_dbgHelpLib = LoadLibraryW(L"dbghelp.dll");
     if (m_dbgHelpLib) {
-        SymInitializeType symInitialize = (SymInitializeType)(GetProcAddress(m_dbgHelpLib, "SymInitialize"));
-        m_symFromAddr = (SymFromAddrType)(GetProcAddress(m_dbgHelpLib, "SymFromAddr"));
+        SymInitializeType symInitialize = reinterpret_cast<SymInitializeType>(
+            reinterpret_cast<QFunctionPointer>(GetProcAddress(m_dbgHelpLib, "SymInitialize")));
+        m_symFromAddr = reinterpret_cast<SymFromAddrType>(
+            reinterpret_cast<QFunctionPointer>(GetProcAddress(m_dbgHelpLib, "SymFromAddr")));
         success = symInitialize && m_symFromAddr && symInitialize(process, NULL, TRUE);
     }
     if (!success)
@@ -2166,8 +2175,9 @@ QString QTest::qFindTestData(const QString& base, const char *file, int line, co
             srcdir.setFile(QFile::decodeName(builddir) + QLatin1String("/") + srcdir.filePath());
         }
 
-        QString candidate = QString::fromLatin1("%1/%2").arg(srcdir.canonicalFilePath(), base);
-        if (QFileInfo::exists(candidate)) {
+        const QString canonicalPath = srcdir.canonicalFilePath();
+        QString candidate = QString::fromLatin1("%1/%2").arg(canonicalPath, base);
+        if (!canonicalPath.isEmpty() && QFileInfo::exists(candidate)) {
             found = candidate;
         }
         else if (QTestLog::verboseLevel() >= 2) {
@@ -2408,16 +2418,9 @@ bool QTest::currentTestFailed()
 */
 void QTest::qSleep(int ms)
 {
+    // ### Qt 6, move to QtCore or remove altogether
     QTEST_ASSERT(ms > 0);
-
-#if defined(Q_OS_WINRT)
-    WaitForSingleObjectEx(GetCurrentThread(), ms, true);
-#elif defined(Q_OS_WIN)
-    Sleep(uint(ms));
-#else
-    struct timespec ts = { time_t(ms / 1000), (ms % 1000) * 1000 * 1000 };
-    nanosleep(&ts, NULL);
-#endif
+    QTestPrivate::qSleep(ms);
 }
 
 /*! \internal

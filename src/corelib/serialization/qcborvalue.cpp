@@ -47,8 +47,7 @@
 #include <qendian.h>
 #include <qlocale.h>
 #include <private/qnumeric_p.h>
-#include <qscopedvaluerollback.h>
-#include <qstack.h>
+#include <private/qsimd_p.h>
 
 #include <new>
 
@@ -542,12 +541,12 @@ QT_BEGIN_NAMESPACE
     Returns true if this QCborValue is of the tag type. The tag value can be
     retrieved using tag() and the tagged value using taggedValue().
 
-    This function does not return true for extended types that the API
+    This function also returns true for extended types that the API
     recognizes. For code that handles extended types directly before the Qt API
     is updated to support them, it is possible to recreate the tag + tagged
-    value pair by using reinterpretAsTag().
+    value pair by using taggedValue().
 
-    \sa type(), tag(), taggedValue(), reinterpretAsTag()
+    \sa type(), tag(), taggedValue(), taggedValue()
  */
 
 /*!
@@ -767,58 +766,6 @@ using namespace QtCbor;
 // in qcborstream.cpp
 extern void qt_cbor_stream_set_error(QCborStreamReaderPrivate *d, QCborError error);
 
-/*!
-    Returns true if the double \a v can be converted to type \c T, false if
-    it's out of range. If the conversion is successful, the converted value is
-    stored in \a value; if it was not successful, \a value will contain the
-    minimum or maximum of T, depending on the sign of \a d. If \c T is
-    unsigned, then \a value contains the absolute value of \a v.
-
-    This function works for v containing infinities, but not NaN. It's the
-    caller's responsibility to exclude that possibility before calling it.
-*/
-template <typename T> static inline bool convertDoubleTo(double v, T *value)
-{
-    Q_STATIC_ASSERT(std::numeric_limits<T>::is_integer);
-
-    // The [conv.fpint] (7.10 Floating-integral conversions) section of the C++
-    // standard says only exact conversions are guaranteed. Converting
-    // integrals to floating-point with loss of precision has implementation-
-    // defined behavior whether the next higher or next lower is returned;
-    // converting FP to integral is UB if it can't be represented.
-    //
-    // That means we can't write UINT64_MAX+1. Writing ldexp(1, 64) would be
-    // correct, but only Clang, ICC and MSVC don't realize that it's a constant
-    // and the math call stays in the compiled code.
-
-    double supremum;
-    if (std::numeric_limits<T>::is_signed) {
-        supremum = -1.0 * std::numeric_limits<T>::min();    // -1 * (-2^63) = 2^63, exact (for T = qint64)
-        *value = std::numeric_limits<T>::min();
-        if (v < std::numeric_limits<T>::min())
-            return false;
-    } else {
-        using ST = typename std::make_signed<T>::type;
-        supremum = -2.0 * std::numeric_limits<ST>::min();   // -2 * (-2^63) = 2^64, exact (for T = quint64)
-        v = fabs(v);
-    }
-
-    *value = std::numeric_limits<T>::max();
-    if (v >= supremum)
-        return false;
-
-    // Now we can convert, these two conversions cannot be UB
-    *value = T(v);
-
-QT_WARNING_PUSH
-QT_WARNING_DISABLE_GCC("-Wfloat-equal")
-QT_WARNING_DISABLE_CLANG("-Wfloat-equal")
-
-    return *value == v;
-
-QT_WARNING_POP
-}
-
 static void writeDoubleToCbor(QCborStreamWriter &writer, double d, QCborValue::EncodingOptions opt)
 {
     if (qt_is_nan(d)) {
@@ -861,152 +808,11 @@ static void writeDoubleToCbor(QCborStreamWriter &writer, double d, QCborValue::E
 static inline int typeOrder(Element e1, Element e2)
 {
     auto comparable = [](Element e) {
-        if (e.type >= 0x10000)
+        if (e.type >= 0x10000)      // see QCborValue::isTag_helper()
             return QCborValue::Tag;
         return e.type;
     };
     return comparable(e1) - comparable(e2);
-}
-
-namespace  {
-class DiagnosticNotation
-{
-public:
-    static QString create(const QCborValue &v, QCborValue::DiagnosticNotationOptions opts)
-    {
-        DiagnosticNotation dn(opts);
-        return dn.createFromValue(v);
-    }
-
-private:
-    QStack<int> byteArrayFormatStack;
-    QCborValue::DiagnosticNotationOptions opts;
-    int nestingLevel = 0;
-
-    DiagnosticNotation(QCborValue::DiagnosticNotationOptions opts_)
-        : opts(opts_)
-    {
-        byteArrayFormatStack.push(int(QCborKnownTags::ExpectedBase16));
-    }
-
-    QString createFromValue(const QCborValue &v);
-};
-}
-
-QString DiagnosticNotation::createFromValue(const QCborValue &v)
-{
-    QString indent(1, QLatin1Char(' '));
-    QString indented = indent;
-    if (opts & QCborValue::LineWrapped) {
-        indent = QLatin1Char('\n') + QString(4 * nestingLevel, QLatin1Char(' '));
-        indented = indent + QLatin1String("    ");
-    }
-    QScopedValueRollback<int> rollback(nestingLevel);
-    ++nestingLevel;
-
-    auto createFromArray = [=](const QCborArray &a) {
-        QString result;
-        QLatin1String comma;
-        for (auto v : a) {
-            result += comma + indented + createFromValue(v);
-            comma = QLatin1String(",");
-        }
-        return result;
-    };
-    auto createFromMap = [=](const QCborMap &m) {
-        QString result;
-        QLatin1String comma;
-        for (auto v : m) {
-            result += comma + indented + createFromValue(v.first) +
-                    QLatin1String(": ") + createFromValue(v.second);
-            comma = QLatin1String(",");
-        }
-        return result;
-    };
-    auto makeFpString = [](double d) {
-        QString s;
-        quint64 v;
-        if (qt_is_inf(d)) {
-            s = (d < 0) ? QStringLiteral("-inf") : QStringLiteral("inf");
-        } else if (qt_is_nan(d)) {
-            s = QStringLiteral("nan");
-        } else if (convertDoubleTo(d, &v)) {
-            s = QString::fromLatin1("%1.0").arg(v);
-            if (d < 0)
-                s.prepend(QLatin1Char('-'));
-        } else {
-            s = QString::number(d, 'g', QLocale::FloatingPointShortest);
-            if (!s.contains(QLatin1Char('.')) && !s.contains('e'))
-                s += QLatin1Char('.');
-        }
-        return s;
-    };
-    auto isByteArrayEncodingTag = [](QCborTag tag) {
-        switch (quint64(tag)) {
-        case quint64(QCborKnownTags::ExpectedBase16):
-        case quint64(QCborKnownTags::ExpectedBase64):
-        case quint64(QCborKnownTags::ExpectedBase64url):
-            return true;
-        }
-        return false;
-    };
-
-    switch (v.type()) {
-    case QCborValue::Integer:
-        return QString::number(v.toInteger());
-    case QCborValue::ByteArray:
-        switch (byteArrayFormatStack.top()) {
-        case int(QCborKnownTags::ExpectedBase16):
-            return QString::fromLatin1("h'" +
-                                       v.toByteArray().toHex(opts & QCborValue::ExtendedFormat ? ' ' : '\0') +
-                                       '\'');
-        case int(QCborKnownTags::ExpectedBase64):
-            return QString::fromLatin1("b64'" + v.toByteArray().toBase64() + '\'');
-        default:
-        case int(QCborKnownTags::ExpectedBase64url):
-            return QString::fromLatin1("b64'" +
-                                       v.toByteArray().toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals) +
-                                       '\'');
-        }
-    case QCborValue::String:
-        // ### TODO: Needs escaping!
-        return QLatin1Char('"') + v.toString() + QLatin1Char('"');
-    case QCborValue::Array:
-        return QLatin1Char('[') + createFromArray(v.toArray()) + indent + QLatin1Char(']');
-    case QCborValue::Map:
-        return QLatin1Char('{') + createFromMap(v.toMap()) + indent + QLatin1Char('}');
-    case QCborValue::Tag: {
-        bool byteArrayFormat = opts & QCborValue::ExtendedFormat && isByteArrayEncodingTag(v.tag());
-        if (byteArrayFormat)
-            byteArrayFormatStack.push(int(v.tag()));
-        QString result = QString::fromLatin1("%1(%2)").arg(quint64(v.tag())).arg(createFromValue(v.taggedValue()));
-        if (byteArrayFormat)
-            byteArrayFormatStack.pop();
-        return result;
-    }
-    case QCborValue::SimpleType:
-        break;
-    case QCborValue::False:
-        return QStringLiteral("false");
-    case QCborValue::True:
-        return QStringLiteral("true");
-    case QCborValue::Null:
-        return QStringLiteral("null");
-    case QCborValue::Undefined:
-        return QStringLiteral("undefined");
-    case QCborValue::Double:
-        return makeFpString(v.toDouble());
-    case QCborValue::DateTime:
-    case QCborValue::Url:
-    case QCborValue::RegularExpression:
-    case QCborValue::Uuid:
-        return createFromValue(v.reinterpretAsTag());
-    case QCborValue::Invalid:
-        return QStringLiteral("<invalid>");
-    }
-
-    // must be a simple type
-    return QString::fromLatin1("simple(%1)").arg(quint8(v.toSimpleType()));
 }
 
 QCborContainerPrivate::~QCborContainerPrivate()
@@ -1053,7 +859,12 @@ QCborContainerPrivate *QCborContainerPrivate::detach(QCborContainerPrivate *d, q
     return d;
 }
 
-void QCborContainerPrivate::replaceAt_complex(Element &e, const QCborValue &value)
+// Copies or moves \a value into element at position \a e. If \a disp is
+// CopyContainer, then this function increases the reference count of the
+// container, but otherwise leaves it unmodified. If \a disp is MoveContainer,
+// then it transfers ownership (move semantics) and the caller must set
+// value.container back to nullptr.
+void QCborContainerPrivate::replaceAt_complex(Element &e, const QCborValue &value, ContainerDisposition disp)
 {
     if (value.n < 0) {
         // This QCborValue is an array, map, or tagged value (container points
@@ -1062,14 +873,18 @@ void QCborContainerPrivate::replaceAt_complex(Element &e, const QCborValue &valu
         // detect self-assignment
         if (Q_UNLIKELY(this == value.container)) {
             Q_ASSERT(ref.load() >= 2);
+            if (disp == MoveContainer)
+                ref.deref();    // not deref() because it can't drop to 0
             QCborContainerPrivate *d = QCborContainerPrivate::clone(this);
             d->elements.detach();
+            d->ref.store(1);
             e.container = d;
         } else {
             e.container = value.container;
+            if (disp == CopyContainer)
+                e.container->ref.ref();
         }
 
-        e.container->ref.ref();
         e.type = value.type();
         e.flags = Element::IsContainer;
     } else {
@@ -1079,7 +894,51 @@ void QCborContainerPrivate::replaceAt_complex(Element &e, const QCborValue &valu
         // Copy string data, if any
         if (const ByteData *b = value.container->byteData(value.n))
             e.value = addByteData(b->byte(), b->len);
+
+        if (disp == MoveContainer)
+            value.container->deref();
     }
+}
+
+// in qstring.cpp
+void qt_to_latin1_unchecked(uchar *dst, const ushort *uc, qsizetype len);
+
+Q_NEVER_INLINE void QCborContainerPrivate::appendAsciiString(const QString &s)
+{
+    qsizetype len = s.size();
+    QtCbor::Element e;
+    e.value = addByteData(nullptr, len);
+    e.type = QCborValue::String;
+    e.flags = Element::HasByteData | Element::StringIsAscii;
+    elements.append(e);
+
+    char *ptr = data.data() + e.value + sizeof(ByteData);
+    uchar *l = reinterpret_cast<uchar *>(ptr);
+    const ushort *uc = (const ushort *)s.unicode();
+    qt_to_latin1_unchecked(l, uc, len);
+}
+
+QCborValue QCborContainerPrivate::extractAt_complex(Element e)
+{
+    // create a new container for the returned value, containing the byte data
+    // from this element, if it's worth it
+    Q_ASSERT(e.flags & Element::HasByteData);
+    auto b = byteData(e);
+    auto container = new QCborContainerPrivate;
+
+    if (b->len + qsizetype(sizeof(*b)) < data.size() / 4) {
+        // make a shallow copy of the byte data
+        container->appendByteData(b->byte(), b->len, e.type, e.flags);
+        usedData -= b->len + qsizetype(sizeof(*b));
+        compact(elements.size());
+    } else {
+        // just share with the original byte data
+        container->data = data;
+        container->elements.reserve(1);
+        container->elements.append(e);
+    }
+
+    return makeValue(e.type, 0, container);
 }
 
 QT_WARNING_DISABLE_MSVC(4146)   // unary minus operator applied to unsigned type, result still unsigned
@@ -1342,12 +1201,12 @@ int QCborValue::compare(const QCborValue &other) const
     return compareElementRecursive(container, e1, other.container, e2);
 }
 
-int QCborArray::compare(const QCborArray &other) const Q_DECL_NOTHROW
+int QCborArray::compare(const QCborArray &other) const noexcept
 {
     return compareContainer(d.data(), other.d.data());
 }
 
-int QCborMap::compare(const QCborMap &other) const Q_DECL_NOTHROW
+int QCborMap::compare(const QCborMap &other) const noexcept
 {
     return compareContainer(d.data(), other.d.data());
 }
@@ -1806,6 +1665,9 @@ QCborValue::QCborValue(QLatin1String s)
 }
 
 /*!
+    \fn QCborValue::QCborValue(const QCborArray &a)
+    \fn QCborValue::QCborValue(QCborArray &&a)
+
     Creates a QCborValue with the array \a a. The array can later be retrieved
     using toArray().
 
@@ -1819,6 +1681,9 @@ QCborValue::QCborValue(const QCborArray &a)
 }
 
 /*!
+    \fn QCborValue::QCborValue(const QCborMap &m)
+    \fn QCborValue::QCborValue(QCborMap &&m)
+
     Creates a QCborValue with the map \a m. The map can later be retrieved
     using toMap().
 
@@ -1870,7 +1735,7 @@ QCborValue::QCborValue(const QCborValue &other)
     \l{QCborKnownTags}{UnixTime_t}. When parsing CBOR streams, QCborValue will
     convert \l{QCborKnownTags}{UnixTime_t} to the string-based type.
 
-    \sa toDateTime(), isDateTime(), reinterpretAsTag()
+    \sa toDateTime(), isDateTime(), taggedValue()
  */
 QCborValue::QCborValue(const QDateTime &dt)
     : QCborValue(QCborKnownTags::DateTimeString, dt.toString(Qt::ISODateWithMs).toLatin1())
@@ -1887,7 +1752,7 @@ QCborValue::QCborValue(const QDateTime &dt)
     The CBOR URL type is an extended type represented by a string tagged as an
     \l{QCborKnownTags}{Url}.
 
-    \sa toUrl(), isUrl(), reinterpretAsTag()
+    \sa toUrl(), isUrl(), taggedValue()
  */
 QCborValue::QCborValue(const QUrl &url)
     : QCborValue(QCborKnownTags::Url, url.toString(QUrl::DecodeReserved).toUtf8())
@@ -1907,7 +1772,7 @@ QCborValue::QCborValue(const QUrl &url)
     regular expressions only store the patterns, so any flags that the
     QRegularExpression object may carry will be lost.
 
-    \sa toRegularExpression(), isRegularExpression(), reinterpretAsTag()
+    \sa toRegularExpression(), isRegularExpression(), taggedValue()
  */
 QCborValue::QCborValue(const QRegularExpression &rx)
     : QCborValue(QCborKnownTags::RegularExpression, rx.pattern())
@@ -1924,7 +1789,7 @@ QCborValue::QCborValue(const QRegularExpression &rx)
     The CBOR UUID type is an extended type represented by a byte array tagged
     as an \l{QCborKnownTags}{Uuid}.
 
-    \sa toUuid(), isUuid(), reinterpretAsTag()
+    \sa toUuid(), isUuid(), taggedValue()
  */
 QCborValue::QCborValue(const QUuid &uuid)
     : QCborValue(QCborKnownTags::Uuid, uuid.toRfc4122())
@@ -1963,12 +1828,7 @@ QCborValue &QCborValue::operator=(const QCborValue &other)
     stored representation. This function returns that number. To retrieve the
     representation, use taggedValue().
 
-    This function does not directly return the tag associated with extended
-    types. In order to do that, first convert the extended type to tag type
-    using reinterpretAsTag().
-
-    \sa isTag(), taggedValue(), reinterpretAsTag(),
-        isDateTime(), isUrl(), isRegularExpression(), isUuid()
+    \sa isTag(), taggedValue(), isDateTime(), isUrl(), isRegularExpression(), isUuid()
  */
 QCborTag QCborValue::tag(QCborTag defaultValue) const
 {
@@ -1984,35 +1844,12 @@ QCborTag QCborValue::tag(QCborTag defaultValue) const
     stored representation. This function returns that representation. To
     retrieve the tag, use tag().
 
-    This function does not directly return the representation associated with
-    extended types. In order to do that, first convert the extended type to tag
-    type using reinterpretAsTag().
-
-    \sa isTag(), tag(), reinterpretAsTag(),
-        isDateTime(), isUrl(), isRegularExpression(), isUuid()
+    \sa isTag(), tag(), isDateTime(), isUrl(), isRegularExpression(), isUuid()
  */
 QCborValue QCborValue::taggedValue(const QCborValue &defaultValue) const
 {
     return isTag() && container && container->elements.size() == 2 ?
                 container->valueAt(1) : defaultValue;
-}
-
-/*!
-    Returns the equivalent representation of a QCborValue extended type, in the
-    form of a tag object. If this object is not an extended type, this function
-    returns an invalid QCborValue object (not undefined).
-
-    \sa isTag(), tag(), taggedValue(), isInvalid(),
-        isDateTime(), isUrl(), isRegularExpression(), isUuid()
- */
-QCborValue QCborValue::reinterpretAsTag() const
-{
-    QCborValue result = *this;
-    if (t >= 0x10000)
-        result.t = Tag;
-    else
-        result.t = Invalid;
-    return result;
 }
 
 /*!
@@ -2477,73 +2314,103 @@ Q_NEVER_INLINE void QCborValue::toCbor(QCborStreamWriter &writer, EncodingOption
     }
 }
 
-/*!
-    Creates the diagnostic notation equivalent of this CBOR object and return
-    it. The \a opts parameter controls the dialect of the notation. Diagnostic
-    notation is useful in debugging, to aid the developer in understanding what
-    value is stored in the QCborValue or in a CBOR stream. For that reason, the
-    Qt API provides no support for parsing the diagnostic back into the
-    in-memory format or CBOR stream, though the representation is unique and it
-    would be possible.
-
-    CBOR diagnostic notation is specified by
-    \l{https://tools.ietf.org/html/rfc7049#section-6}{section 6} of RFC 7049.
-    It is a text representation of the CBOR stream and it is very similar to
-    JSON, but it supports the CBOR types not found in JSON. The extended format
-    enabled by the \l{DiagnosticNotationOption}{ExtendedFormat} flag is
-    currently in some IETF drafts and its format is subject to change.
-
-    This function produces the equivalent representation of the stream that
-    toCbor() would produce, without any transformation option provided there.
-    This also implies this function may not produce a representation of the
-    stream that was used to create the object, if it was created using
-    fromCbor(), as that function may have applied transformations. For a
-    high-fidelity notation of a stream, without transformation, see the \c
-    cbordump example.
-
-    \sa toCbor(), toJsonDocument(), QJsonDocument::toJson()
- */
-QString QCborValue::toDiagnosticNotation(DiagnosticNotationOptions opts) const
-{
-    return DiagnosticNotation::create(*this, opts);
-}
-
 void QCborValueRef::toCbor(QCborStreamWriter &writer, QCborValue::EncodingOptions opt)
 {
     concrete().toCbor(writer, opt);
 }
 
-QCborValueRef &QCborValueRef::operator=(const QCborValue &other)
+void QCborValueRef::assign(QCborValueRef that, const QCborValue &other)
 {
-    d->replaceAt(i, other);
-    return *this;
+    that.d->replaceAt(that.i, other);
 }
 
-QCborValueRef &QCborValueRef::operator=(const QCborValueRef &other)
+void QCborValueRef::assign(QCborValueRef that, QCborValue &&other)
+{
+    that.d->replaceAt(that.i, other, QCborContainerPrivate::MoveContainer);
+}
+
+void QCborValueRef::assign(QCborValueRef that, const QCborValueRef other)
 {
     // ### optimize?
-    return *this = other.concrete();
+    assign(that, other.concrete());
 }
 
-QCborValue QCborValueRef::concrete(QCborValueRef self) Q_DECL_NOTHROW
+QCborValue QCborValueRef::concrete(QCborValueRef self) noexcept
 {
     return self.d->valueAt(self.i);
 }
 
-QCborValue::Type QCborValueRef::concreteType(QCborValueRef self) Q_DECL_NOTHROW
+QCborValue::Type QCborValueRef::concreteType(QCborValueRef self) noexcept
 {
     return self.d->elements.at(self.i).type;
 }
 
-inline QCborArray::QCborArray(QCborContainerPrivate &dd) Q_DECL_NOTHROW
+inline QCborArray::QCborArray(QCborContainerPrivate &dd) noexcept
     : d(&dd)
 {
 }
 
-inline QCborMap::QCborMap(QCborContainerPrivate &dd) Q_DECL_NOTHROW
+inline QCborMap::QCborMap(QCborContainerPrivate &dd) noexcept
     : d(&dd)
 {
 }
+
+#if !defined(QT_NO_DEBUG_STREAM)
+static QDebug debugContents(QDebug &dbg, const QCborValue &v)
+{
+    switch (v.type()) {
+    case QCborValue::Integer:
+        return dbg << v.toInteger();
+    case QCborValue::ByteArray:
+        return dbg << "QByteArray(" << v.toByteArray() << ')';
+    case QCborValue::String:
+        return dbg << v.toString();
+    case QCborValue::Array:
+        return dbg << v.toArray();
+    case QCborValue::Map:
+        return dbg << v.toMap();
+    case QCborValue::Tag:
+        dbg << v.tag() << ", ";
+        return debugContents(dbg, v.taggedValue());
+    case QCborValue::SimpleType:
+        break;
+    case QCborValue::True:
+        return dbg << true;
+    case QCborValue::False:
+        return dbg << false;
+    case QCborValue::Null:
+        return dbg << "nullptr";
+    case QCborValue::Undefined:
+        return dbg;
+    case QCborValue::Double: {
+        qint64 i = qint64(v.toDouble());
+        if (i == v.toDouble())
+            return dbg << i << ".0";
+        else
+            return dbg << v.toDouble();
+    }
+    case QCborValue::DateTime:
+        return dbg << v.toDateTime();
+    case QCborValue::Url:
+        return dbg << v.toUrl();
+    case QCborValue::RegularExpression:
+        return dbg << v.toRegularExpression();
+    case QCborValue::Uuid:
+        return dbg << v.toUuid();
+    case QCborValue::Invalid:
+        return dbg << "<invalid>";
+    }
+    if (v.isSimpleType())
+        return dbg << v.toSimpleType();
+    return dbg << "<unknown type " << hex << int(v.type()) << dec << '>';
+}
+QDebug operator<<(QDebug dbg, const QCborValue &v)
+{
+    QDebugStateSaver saver(dbg);
+    dbg.nospace() << "QCborValue(";
+    return debugContents(dbg, v) << ')';
+}
+#endif
 
 QT_END_NAMESPACE
 

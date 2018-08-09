@@ -47,6 +47,12 @@
 #include <QtCore/qstring.h>
 #include <QtCore/qstringview.h>
 
+// See qcborcommon.h for why we check
+#if defined(QT_X11_DEFINES_FOUND)
+#  undef True
+#  undef False
+#endif
+
 QT_BEGIN_NAMESPACE
 
 class QIODevice;
@@ -172,7 +178,7 @@ public:
 
     int containerDepth() const;
     QCborStreamReader::Type parentContainerType() const;
-    bool hasNext() const Q_DECL_NOTHROW Q_DECL_PURE_FUNCTION;
+    bool hasNext() const noexcept Q_DECL_PURE_FUNCTION;
     bool next(int maxRecursion = 10000);
 
     Type type() const               { return QCborStreamReader::Type(type_); }
@@ -197,7 +203,7 @@ public:
     bool isNull() const             { return isSimpleType(QCborSimpleType::Null); }
     bool isUndefined() const        { return isSimpleType(QCborSimpleType::Undefined); }
 
-    bool isLengthKnown() const Q_DECL_NOTHROW Q_DECL_PURE_FUNCTION;
+    bool isLengthKnown() const noexcept Q_DECL_PURE_FUNCTION;
     quint64 length() const;
 
     bool isContainer() const            { return isMap() || isArray(); }
@@ -234,7 +240,7 @@ private:
     StringResult<QByteArray> _readByteArray_helper();
     qsizetype _currentStringChunkSize() const;
 
-    template <typename FP> FP _toFloatingPoint() const Q_DECL_NOTHROW
+    template <typename FP> FP _toFloatingPoint() const noexcept
     {
         using UInt = typename QIntegerForSizeof<FP>::Unsigned;
         UInt u = UInt(value64);
@@ -252,5 +258,10 @@ private:
 };
 
 QT_END_NAMESPACE
+
+#if defined(QT_X11_DEFINES_FOUND)
+#  define True  1
+#  define False 0
+#endif
 
 #endif // QCBORSTREAM_H

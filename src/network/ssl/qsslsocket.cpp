@@ -340,7 +340,9 @@ public:
         : config(new QSslConfigurationPrivate),
           dtlsConfig(new QSslConfigurationPrivate)
     {
+#if QT_CONFIG(dtls)
         dtlsConfig->protocol = QSsl::DtlsV1_2OrLater;
+#endif // dtls
     }
 
     QMutex mutex;
@@ -377,7 +379,7 @@ QSslSocket::~QSslSocket()
     qCDebug(lcSsl) << "QSslSocket::~QSslSocket(), this =" << (void *)this;
 #endif
     delete d->plainSocket;
-    d->plainSocket = 0;
+    d->plainSocket = nullptr;
 }
 
 /*!
@@ -2075,9 +2077,9 @@ QSslSocketPrivate::QSslSocketPrivate()
     , connectionEncrypted(false)
     , shutdown(false)
     , ignoreAllSslErrors(false)
-    , readyReadEmittedPointer(0)
+    , readyReadEmittedPointer(nullptr)
     , allowRootCertOnDemandLoading(true)
-    , plainSocket(0)
+    , plainSocket(nullptr)
     , paused(false)
     , flushTriggered(false)
 {
@@ -2316,6 +2318,9 @@ void QSslConfigurationPrivate::deepCopyDefaultConfiguration(QSslConfigurationPri
     ptr->sslOptions = global->sslOptions;
     ptr->ellipticCurves = global->ellipticCurves;
     ptr->backendConfig = global->backendConfig;
+#if QT_CONFIG(dtls)
+    ptr->dtlsCookieEnabled = global->dtlsCookieEnabled;
+#endif
 }
 
 /*!

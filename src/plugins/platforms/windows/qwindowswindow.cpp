@@ -660,7 +660,7 @@ QWindowsWindowData
     WindowData result;
     result.flags = flags;
 
-    const HINSTANCE appinst = (HINSTANCE)GetModuleHandle(0);
+    const auto appinst = reinterpret_cast<HINSTANCE>(GetModuleHandle(nullptr));
 
     const QString windowClassName = QWindowsContext::instance()->registerWindowClass(w);
 
@@ -1374,28 +1374,12 @@ bool QWindowsWindow::isEmbedded() const
 
 QPoint QWindowsWindow::mapToGlobal(const QPoint &pos) const
 {
-    if (m_data.hwnd)
-        return QWindowsGeometryHint::mapToGlobal(m_data.hwnd, pos);
-    else
-        return pos;
+    return m_data.hwnd ? QWindowsGeometryHint::mapToGlobal(m_data.hwnd, pos) : pos;
 }
 
 QPoint QWindowsWindow::mapFromGlobal(const QPoint &pos) const
 {
-    if (m_data.hwnd)
-        return QWindowsGeometryHint::mapFromGlobal(m_data.hwnd, pos);
-    else
-        return pos;
-}
-
-static inline HWND transientParentHwnd(HWND hwnd)
-{
-    if (GetAncestor(hwnd, GA_PARENT) == GetDesktopWindow()) {
-        const HWND rootOwnerHwnd = GetAncestor(hwnd, GA_ROOTOWNER);
-        if (rootOwnerHwnd != hwnd) // May return itself for toplevels.
-            return rootOwnerHwnd;
-    }
-    return 0;
+    return m_data.hwnd ? QWindowsGeometryHint::mapFromGlobal(m_data.hwnd, pos) : pos;
 }
 
 // Update the transient parent for a toplevel window. The concept does not
@@ -1412,7 +1396,7 @@ void QWindowsWindow::updateTransientParent() const
     if (window()->type() == Qt::Popup)
         return; // QTBUG-34503, // a popup stays on top, no parent, see also WindowCreationData::fromWindow().
     // Update transient parent.
-    const HWND oldTransientParent = transientParentHwnd(m_data.hwnd);
+    const HWND oldTransientParent = GetWindow(m_data.hwnd, GW_OWNER);
     HWND newTransientParent = 0;
     if (const QWindow *tp = window()->transientParent())
         if (const QWindowsWindow *tw = QWindowsWindow::windowsWindowOf(tp))
@@ -1886,7 +1870,8 @@ void QWindowsWindow::handleWindowStateChange(Qt::WindowStates state)
             fireExpose(QRegion(0, 0, w->width(), w->height()));
             exposeEventsSent = true;
         }
-        foreach (QWindow *child, QGuiApplication::allWindows()) {
+        const QWindowList allWindows = QGuiApplication::allWindows();
+        for (QWindow *child : allWindows) {
             if (child != w && child->isVisible() && child->transientParent() == w) {
                 QWindowsWindow *platformWindow = QWindowsWindow::windowsWindowOf(child);
                 if (platformWindow && platformWindow->isLayered()) {
@@ -2113,6 +2098,8 @@ bool QWindowsWindow::handleGeometryChangingMessage(MSG *message, const QWindow *
             HWND desktopHWND = GetDesktopWindow();
             platformWindow->m_data.embedded = !parentWindow && parentHWND && (parentHWND != desktopHWND);
         }
+        if (qWindow->flags().testFlag(Qt::WindowStaysOnBottomHint))
+            windowPos->hwndInsertAfter = HWND_BOTTOM;
     }
     if (!qWindow->isTopLevel()) // Implement hasHeightForWidth().
         return false;
@@ -2459,8 +2446,11 @@ static inline bool applyNewCursor(const QWindow *w)
 
 void QWindowsWindow::applyCursor()
 {
-    if (static_cast<const QWindowsCursor *>(screen()->cursor())->hasOverrideCursor())
+    if (QWindowsCursor::hasOverrideCursor()) {
+        if (isTopLevel())
+            QWindowsCursor::enforceOverrideCursor();
         return;
+    }
 #ifndef QT_NO_CURSOR
     if (m_cursor->isNull()) { // Recurse up to parent with non-null cursor. Set default for toplevel.
         if (const QWindow *p = window()->parent()) {

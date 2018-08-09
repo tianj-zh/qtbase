@@ -182,6 +182,17 @@ QtModuleProject {
             "socket/qtcpsocket_p.h",
             "socket/qudpsocket.cpp",
             "socket/qudpsocket.h",
+            "ssl/qasn1element.cpp",
+            "ssl/qasn1element_p.h",
+            "ssl/qssl.cpp",
+            "ssl/qssl.h",
+            "ssl/qssl_p.h",
+            "ssl/qsslcertificate.cpp",
+            "ssl/qsslcertificate.h",
+            "ssl/qsslcertificate_p.h",
+            "ssl/qsslcertificateextension.cpp",
+            "ssl/qsslcertificateextension.h",
+            "ssl/qsslcertificateextension_p.h",
         ]
 
         Group {
@@ -421,21 +432,17 @@ QtModuleProject {
         }
 
         Group {
+            condition: !QtNetworkPrivateConfig.openssl
+            files: [
+                "ssl/qsslcertificate_qt.cpp",
+            ]
+        }
+
+        Group {
             condition: QtNetworkConfig.ssl
             files: [
-                "ssl/qasn1element.cpp",
-                "ssl/qasn1element_p.h",
                 "ssl/qpassworddigestor.cpp",
                 "ssl/qpassworddigestor.h",
-                "ssl/qssl.cpp",
-                "ssl/qssl.h",
-                "ssl/qssl_p.h",
-                "ssl/qsslcertificate.cpp",
-                "ssl/qsslcertificate.h",
-                "ssl/qsslcertificate_p.h",
-                "ssl/qsslcertificateextension.cpp",
-                "ssl/qsslcertificateextension.h",
-                "ssl/qsslcertificateextension_p.h",
                 "ssl/qsslcipher.cpp",
                 "ssl/qsslcipher.h",
                 "ssl/qsslcipher_p.h",
@@ -464,7 +471,6 @@ QtModuleProject {
                 condition: product.targetsUWP
                 files: [
                     "ssl/qsslsocket_winrt_p.h",
-                    "ssl/qsslcertificate_qt.cpp",
                     "ssl/qsslcertificate_winrt.cpp",
                     "ssl/qssldiffiehellmanparameters_dummy.cpp",
                     "ssl/qsslkey_qt.cpp",
@@ -477,7 +483,6 @@ QtModuleProject {
             Group {
                 condition: QtNetworkPrivateConfig.securetransport
                 files: [
-                    "ssl/qsslcertificate_qt.cpp",
                     "ssl/qssldiffiehellmanparameters_dummy.cpp",
                     "ssl/qsslellipticcurve_dummy.cpp",
                     "ssl/qsslkey_mac.cpp",
@@ -535,6 +540,14 @@ QtModuleProject {
                     ]
                 }
 
+                Group {
+                    condition: QtNetworkConfig.dtls
+                    files: [
+                        "ssl/qdtls_openssl.cpp",
+                        "ssl/qdtls_openssl_p.h",
+                    ]
+                }
+
                 /*
         qtConfig(openssl-linked): \
             QMAKE_USE_FOR_PRIVATE += openssl
@@ -542,6 +555,15 @@ QtModuleProject {
             QMAKE_USE_FOR_PRIVATE += openssl/nolink
         win32: LIBS_PRIVATE += -lcrypt32
                   */
+            }
+
+            Group {
+                condition: QtNetworkConfig.dtls
+                files: [
+                    "ssl/qdtls.cpp",
+                    "ssl/qdtls.h",
+                    "ssl/qdtls_p.h",
+                ]
             }
         }
     }

@@ -39,35 +39,6 @@
 
 // This file is included from qnsview.mm, and only used to organize the code
 
-@implementation QT_MANGLE_NAMESPACE(QNSView) (DrawingAPI)
-
-- (void)requestUpdate
-{
-    if (self.needsDisplay) {
-        // If the view already has needsDisplay set it means that there may be code waiting for
-        // a real expose event, so we can't issue setNeedsDisplay now as a way to trigger an
-        // update request. We will re-trigger requestUpdate from drawRect.
-        return;
-    }
-
-    [self setNeedsDisplay:YES];
-    m_updateRequested = true;
-}
-
-#ifndef QT_NO_OPENGL
-- (void)setQCocoaGLContext:(QCocoaGLContext *)context
-{
-    m_glContext = context;
-    [m_glContext->nsOpenGLContext() setView:self];
-    if (![m_glContext->nsOpenGLContext() view]) {
-        //was unable to set view
-        m_shouldSetGLContextinDrawRect = true;
-    }
-}
-#endif
-
-@end
-
 @implementation QT_MANGLE_NAMESPACE(QNSView) (Drawing)
 
 - (BOOL)isOpaque
@@ -80,12 +51,6 @@
 - (BOOL)isFlipped
 {
     return YES;
-}
-
-- (void)setNeedsDisplayInRect:(NSRect)rect
-{
-    [super setNeedsDisplayInRect:rect];
-    m_updateRequested = false;
 }
 
 - (void)drawRect:(NSRect)dirtyRect
@@ -103,61 +68,31 @@
         exposedRegion += QRectF::fromCGRect(dirtyRects[i]).toRect();
 
     qCDebug(lcQpaDrawing) << "[QNSView drawRect:]" << m_platformWindow->window() << exposedRegion;
-    [self updateRegion:exposedRegion];
+    m_platformWindow->handleExposeEvent(exposedRegion);
 }
 
-- (void)updateRegion:(QRegion)dirtyRegion
-{
-#ifndef QT_NO_OPENGL
-    if (m_glContext && m_shouldSetGLContextinDrawRect) {
-        [m_glContext->nsOpenGLContext() setView:self];
-        m_shouldSetGLContextinDrawRect = false;
-    }
-#endif
-
-    if (m_updateRequested) {
-        Q_ASSERT(m_platformWindow->hasPendingUpdateRequest());
-        m_platformWindow->deliverUpdateRequest();
-        m_updateRequested = false;
-    } else {
-        m_platformWindow->handleExposeEvent(dirtyRegion);
-    }
-
-    if (m_updateRequested && m_platformWindow->hasPendingUpdateRequest()) {
-        // A call to QWindow::requestUpdate was issued during event delivery above,
-        // but AppKit will reset the needsDisplay state of the view after completing
-        // the current display cycle, so we need to defer the request to redisplay.
-        // FIXME: Perhaps this should be a trigger to enable CADisplayLink?
-        qCDebug(lcQpaDrawing) << "[QNSView drawRect:] issuing deferred setNeedsDisplay due to pending update request";
-        dispatch_async(dispatch_get_main_queue (), ^{ [self requestUpdate]; });
-    }
-}
-
-- (BOOL)shouldUseMetalLayer:(QSurface::SurfaceType)surfaceType
+- (BOOL)shouldUseMetalLayer
 {
     // MetalSurface needs a layer, and so does VulkanSurface (via MoltenVK)
+    QSurface::SurfaceType surfaceType = m_platformWindow->window()->surfaceType();
     return surfaceType == QWindow::MetalSurface || surfaceType == QWindow::VulkanSurface;
 }
 
-- (BOOL)wantsLayer
+- (BOOL)wantsLayerHelper
 {
     Q_ASSERT(m_platformWindow);
 
-    // Toggling the private QWindow property or the environment variable
-    // on and off is not a supported use-case, so this code is effectively
-    // returning a constant for the lifetime of our QSNSView, which means
-    // we don't care about emitting KVO signals for @"wantsLayer".
     bool wantsLayer = qt_mac_resolveOption(true, m_platformWindow->window(),
         "_q_mac_wantsLayer", "QT_MAC_WANTS_LAYER");
 
-    bool layerForSurfaceType = [self shouldUseMetalLayer:m_platformWindow->window()->surfaceType()];
+    bool layerForSurfaceType = [self shouldUseMetalLayer];
 
     return wantsLayer || layerForSurfaceType;
 }
 
 - (CALayer *)makeBackingLayer
 {
-    if ([self shouldUseMetalLayer:m_platformWindow->window()->surfaceType()]) {
+    if ([self shouldUseMetalLayer]) {
         // Check if Metal is supported. If it isn't then it's most likely
         // too late at this point and the QWindow will be non-functional,
         // but we can at least print a warning.
@@ -211,7 +146,7 @@
     qCDebug(lcQpaDrawing) << "[QNSView displayLayer]" << m_platformWindow->window();
 
     // FIXME: Find out if there's a way to resolve the dirty rect like in drawRect:
-    [self updateRegion:QRectF::fromCGRect(self.bounds).toRect()];
+    m_platformWindow->handleExposeEvent(QRectF::fromCGRect(self.bounds).toRect());
 }
 
 - (void)viewDidChangeBackingProperties

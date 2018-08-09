@@ -16,6 +16,7 @@ QtAutotest {
         condition: !targetsAndroidProper
         files: [
             "dependencies_la.qm",
+            "hellotr_empty.qm",
             "hellotr_la.qm",
             "msgfmt_from_po.qm",
         ]

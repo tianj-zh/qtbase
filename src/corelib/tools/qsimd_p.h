@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -179,7 +179,6 @@
 
 #ifdef Q_PROCESSOR_X86
 /* -- x86 intrinsic support -- */
-#  include "qsimd_x86_p.h"
 
 #  if defined(Q_CC_MSVC) && (defined(_M_X64) || _M_IX86_FP >= 2)
 // MSVC doesn't define __SSE2__, so do it ourselves
@@ -233,6 +232,49 @@
 #    define __RDRND__                       1
 #  endif
 
+#  if defined(__BMI__) && !defined(__BMI2__) && defined(Q_CC_INTEL)
+// BMI2 instructions:
+// All processors that support BMI support BMI2 (and AVX2)
+// (but neither MSVC nor the Intel compiler define this macro)
+#    define __BMI2__                        1
+#  endif
+
+#  include "qsimd_x86_p.h"
+
+// Haswell sub-architecture
+//
+// The Intel Core 4th generation was codenamed "Haswell" and introduced AVX2,
+// BMI1, BMI2, FMA, LZCNT, MOVBE, which makes it a good divider for a
+// sub-target for us. The first AMD processor with AVX2 support (Zen) has the
+// same features.
+//
+// macOS's fat binaries support the "x86_64h" sub-architecture and the GNU libc
+// ELF loader also supports a "haswell/" subdir (e.g., /usr/lib/haswell).
+#  define QT_FUNCTION_TARGET_STRING_ARCH_HASWELL    "arch=haswell"
+#  if defined(__AVX2__) && defined(__BMI__) && defined(__BMI2__) && defined(__F16C__) && \
+    defined(__FMA__) && defined(__LZCNT__) && defined(__RDRND__)
+#    define __haswell__       1
+#  endif
+
+// This constant does not include all CPU features found in a Haswell, only
+// those that we'd have optimized code for.
+// Note: must use Q_CONSTEXPR here, as this file may be compiled in C mode.
+QT_BEGIN_NAMESPACE
+static const quint64 CpuFeatureArchHaswell    = 0
+        | CpuFeatureSSE2
+        | CpuFeatureSSE3
+        | CpuFeatureSSSE3
+        | CpuFeatureSSE4_1
+        | CpuFeatureSSE4_2
+        | CpuFeatureFMA
+        | CpuFeaturePOPCNT
+        | CpuFeatureAVX
+        | CpuFeatureF16C
+        | CpuFeatureAVX2
+        | CpuFeatureBMI
+        | CpuFeatureBMI2;
+QT_END_NAMESPACE
+
 #endif  /* Q_PROCESSOR_X86 */
 
 // Clang compiler fix, see http://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160222/151168.html
@@ -269,30 +311,30 @@ QT_BEGIN_NAMESPACE
 #ifndef Q_PROCESSOR_X86
 enum CPUFeatures {
 #if defined(Q_PROCESSOR_ARM)
-    CpuFeatureNEON          = 0,
+    CpuFeatureNEON          = 2,
     CpuFeatureARM_NEON      = CpuFeatureNEON,
-    CpuFeatureCRC32         = 1,
+    CpuFeatureCRC32         = 4,
 #elif defined(Q_PROCESSOR_MIPS)
-    CpuFeatureDSP           = 0,
-    CpuFeatureDSPR2         = 1,
+    CpuFeatureDSP           = 2,
+    CpuFeatureDSPR2         = 4,
 #endif
 
     // used only to indicate that the CPU detection was initialised
-    QSimdInitialized = 0x80000000
+    QSimdInitialized        = 1
 };
 
 static const quint64 qCompilerCpuFeatures = 0
 #if defined __ARM_NEON__
-        | (Q_UINT64_C(1) << CpuFeatureNEON)
+        | CpuFeatureNEON
 #endif
 #if defined __ARM_FEATURE_CRC32
-        | (Q_UINT64_C(1) << CpuFeatureCRC32)
+        | CpuFeatureCRC32
 #endif
 #if defined __mips_dsp
-        | (Q_UINT64_C(1) << CpuFeatureDSP)
+        | CpuFeatureDSP
 #endif
 #if defined __mips_dspr2
-        | (Q_UINT64_C(1) << CpuFeatureDSPR2)
+        | CpuFeatureDSPR2
 #endif
         ;
 #endif
@@ -321,8 +363,8 @@ static inline quint64 qCpuFeatures()
     return features;
 }
 
-#define qCpuHasFeature(feature)     ((qCompilerCpuFeatures & (Q_UINT64_C(1) << CpuFeature ## feature)) \
-                                     || (qCpuFeatures() & (Q_UINT64_C(1) << CpuFeature ## feature)))
+#define qCpuHasFeature(feature)     (((qCompilerCpuFeatures & CpuFeature ## feature) == CpuFeature ## feature) \
+                                     || ((qCpuFeatures() & CpuFeature ## feature) == CpuFeature ## feature))
 
 #define ALIGNMENT_PROLOGUE_16BYTES(ptr, i, length) \
     for (; i < static_cast<int>(qMin(static_cast<quintptr>(length), ((4 - ((reinterpret_cast<quintptr>(ptr) >> 2) & 0x3)) & 0x3))); ++i)

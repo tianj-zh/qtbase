@@ -37,8 +37,8 @@
 **
 ****************************************************************************/
 
-#include <QtCore/qconfig.h>
-#ifndef QT_NO_ACCESSIBILITY
+#include <QtGui/qtguiglobal.h>
+#if QT_CONFIG(accessibility)
 
 #include "qwindowsuiautils.h"
 #include "qwindowscontext.h"
@@ -149,7 +149,7 @@ long roleToControlTypeId(QAccessible::Role role)
         {QAccessible::Caret, UIA_CustomControlTypeId},
         {QAccessible::AlertMessage, UIA_CustomControlTypeId},
         {QAccessible::Window, UIA_WindowControlTypeId},
-        {QAccessible::Client, UIA_CustomControlTypeId},
+        {QAccessible::Client, UIA_GroupControlTypeId},
         {QAccessible::PopupMenu, UIA_MenuControlTypeId},
         {QAccessible::MenuItem, UIA_MenuItemControlTypeId},
         {QAccessible::ToolTip, UIA_ToolTipControlTypeId},
@@ -218,4 +218,4 @@ bool isTextUnitSeparator(TextUnit unit, const QChar &ch)
 
 QT_END_NAMESPACE
 
-#endif // QT_NO_ACCESSIBILITY
+#endif // QT_CONFIG(accessibility)

@@ -188,7 +188,7 @@ private slots:
     void reverseTabOrder();
     void tabOrderWithProxy();
     void tabOrderWithCompoundWidgets();
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
     void activation();
 #endif
     void reparent();
@@ -1425,7 +1425,7 @@ void tst_QWidget::mapFromAndTo()
     subWindow2->setGeometry(75, 75, 100, 100);
     subSubWindow->setGeometry(10, 10, 10, 10);
 
-#if !defined(Q_OS_QNX)
+#if !defined(Q_OS_QNX) && !defined(Q_OS_WINRT)
     //update visibility
     if (windowMinimized) {
         if (!windowHidden) {
@@ -1930,7 +1930,7 @@ void tst_QWidget::tabOrderWithCompoundWidgets()
     QVERIFY(lastEdit->hasFocus());
 }
 
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
 void tst_QWidget::activation()
 {
     Q_CHECK_PAINTEVENTS
@@ -1975,7 +1975,8 @@ void tst_QWidget::windowState()
     QPoint pos;
     QSize size = m_testWidgetSize;
     if (QGuiApplicationPrivate::platformIntegration()->defaultWindowState(Qt::Widget)
-                                                       == Qt::WindowFullScreen) {
+                                                       == Qt::WindowFullScreen
+        || m_platform == QStringLiteral("winrt")) {
         size = QGuiApplication::primaryScreen()->size();
     } else {
         pos = QPoint(10, 10);
@@ -2180,6 +2181,8 @@ void tst_QWidget::showFullScreen()
     QSKIP("QTBUG-52974");
 #endif
 
+    if (m_platform == QStringLiteral("winrt"))
+        QSKIP("WinRT: This fails. QTBUG-68297");
     QWidget plain;
     QHBoxLayout *layout;
     QWidget layouted;
@@ -2301,6 +2304,8 @@ void tst_QWidget::resizeEvent()
         wTopLevel.resize(200, 200);
         wTopLevel.show();
         QVERIFY(QTest::qWaitForWindowExposed(&wTopLevel));
+        if (m_platform == QStringLiteral("winrt"))
+            QEXPECT_FAIL("", "WinRT does not support resize", Abort);
         QCOMPARE (wTopLevel.m_resizeEventCount, 1); // initial resize event before paint for toplevels
         wTopLevel.hide();
         QSize safeSize(640,480);
@@ -2324,6 +2329,9 @@ void tst_QWidget::showMinimized()
     plain.showMinimized();
     QVERIFY(plain.isMinimized());
     QVERIFY(plain.isVisible());
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Winrt does not support move and resize", Abort);
+#endif
     QCOMPARE(plain.pos(), pos);
 
     plain.showNormal();
@@ -2475,11 +2483,15 @@ void tst_QWidget::showMinimizedKeepsFocus()
 #ifdef Q_OS_OSX
         if (!macHasAccessToWindowsServer())
             QEXPECT_FAIL("", "When not having WindowServer access, we lose focus.", Continue);
+#elif defined(Q_OS_WINRT)
+        QEXPECT_FAIL("", "Winrt fails here - QTBUG-68297", Continue);
 #endif
         QTRY_COMPARE(window.focusWidget(), firstchild);
 #ifdef Q_OS_OSX
         if (!macHasAccessToWindowsServer())
             QEXPECT_FAIL("", "When not having WindowServer access, we lose focus.", Continue);
+#elif defined(Q_OS_WINRT)
+        QEXPECT_FAIL("", "Winrt fails here - QTBUG-68297", Continue);
 #endif
         QTRY_COMPARE(qApp->focusWidget(), firstchild);
     }
@@ -2510,6 +2522,9 @@ void tst_QWidget::reparent()
 
     parent.show();
     childTLW.show();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "WinRT does not support more than 1 top level widget", Abort);
+#endif
     QVERIFY(QTest::qWaitForWindowExposed(&parent));
 
     parent.move(parentPosition);
@@ -2607,6 +2622,8 @@ void tst_QWidget::normalGeometry()
 
     if (m_platform == QStringLiteral("wayland"))
         QSKIP("Wayland: This fails. Figure out why.");
+    else if (m_platform == QStringLiteral("winrt"))
+        QSKIP("WinRT: This fails. Figure out why - QTBUG-68297.");
     QWidget parent;
     parent.setWindowTitle("NormalGeometry parent");
     QWidget *child = new QWidget(&parent);
@@ -2716,6 +2733,8 @@ void tst_QWidget::setGeometry()
     tlw.setGeometry(tr);
     child.setGeometry(cr);
     tlw.showNormal();
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT does not support setGeometry", Abort);
     QTRY_COMPARE(tlw.geometry().size(), tr.size());
     QCOMPARE(child.geometry(), cr);
 
@@ -3195,6 +3214,8 @@ void tst_QWidget::saveRestoreGeometry()
         QVERIFY(QTest::qWaitForWindowExposed(&widget));
         QApplication::processEvents();
 
+        if (m_platform == QStringLiteral("winrt"))
+            QEXPECT_FAIL("", "WinRT does not support move/resize", Abort);
         QTRY_COMPARE(widget.pos(), position);
         QCOMPARE(widget.size(), size);
         savedGeometry = widget.saveGeometry();
@@ -3335,6 +3356,7 @@ void tst_QWidget::restoreVersion1Geometry()
     QFETCH(QString, fileName);
     QFETCH(uint, expectedWindowState);
     QFETCH(QPoint, expectedPosition);
+    Q_UNUSED(expectedPosition);
     QFETCH(QSize, expectedSize);
     QFETCH(QRect, expectedNormalGeometry);
 
@@ -3354,28 +3376,28 @@ void tst_QWidget::restoreVersion1Geometry()
 
     QCOMPARE(uint(widget.windowState() & WindowStateMask), expectedWindowState);
     if (expectedWindowState == Qt::WindowNoState) {
-        QCOMPARE(widget.pos(), expectedPosition);
+        QTRY_COMPARE(widget.geometry(), expectedNormalGeometry);
         QCOMPARE(widget.size(), expectedSize);
     }
+
     widget.showNormal();
     QVERIFY(QTest::qWaitForWindowExposed(&widget));
     QTest::qWait(100);
 
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT does not support restoreGeometry", Abort);
+
     if (expectedWindowState == Qt::WindowNoState) {
-        QTRY_COMPARE(widget.pos(), expectedPosition);
         QTRY_COMPARE(widget.size(), expectedSize);
+        QCOMPARE(widget.geometry(), expectedNormalGeometry);
     }
 
     widget.showNormal();
     QTest::qWait(10);
 
-    if (expectedWindowState != Qt::WindowNoState) {
-        // restoring from maximized or fullscreen, we can only restore to the normal geometry
-        QTRY_COMPARE(widget.geometry(), expectedNormalGeometry);
-    } else {
-        QTRY_COMPARE(widget.pos(), expectedPosition);
-        QTRY_COMPARE(widget.size(), expectedSize);
-    }
+    QTRY_COMPARE(widget.geometry(), expectedNormalGeometry);
+    if (expectedWindowState == Qt::WindowNoState)
+        QCOMPARE(widget.size(), expectedSize);
 
 #if 0
     // Code for saving a new geometry*.dat files
@@ -3410,6 +3432,8 @@ void tst_QWidget::widgetAt()
         QSKIP("Wayland: This fails. Figure out why.");
     if (m_platform == QStringLiteral("offscreen"))
         QSKIP("Platform offscreen does not support lower()/raise() or WindowMasks");
+    if (m_platform == QStringLiteral("winrt"))
+        QSKIP("WinRT does not support more than 1 top level widget");
 
     Q_CHECK_PAINTEVENTS
 
@@ -3711,6 +3735,8 @@ void tst_QWidget::optimizedResizeMove()
     staticWidget.gotPaintEvent = false;
     staticWidget.move(staticWidget.pos() + QPoint(10, 10));
     QTest::qWait(20);
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT does not support move/resize", Abort);
     QCOMPARE(staticWidget.gotPaintEvent, false);
 
     staticWidget.gotPaintEvent = false;
@@ -3810,6 +3836,8 @@ void tst_QWidget::optimizedResize_topLevel()
     QTRY_VERIFY(topLevel.gotPaintEvent);
     if (m_platform == QStringLiteral("xcb") || m_platform == QStringLiteral("offscreen"))
         QSKIP("QTBUG-26424");
+    else if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT does not support move/resize", Abort);
     QCOMPARE(topLevel.partial, true);
     QCOMPARE(topLevel.paintedRegion, expectedUpdateRegion);
 }
@@ -3910,9 +3938,11 @@ void tst_QWidget::setFixedSize()
 
     w.setFixedSize(defaultSize + QSize(150, 150));
     w.showNormal();
-    QVERIFY(QTest::qWaitForWindowExposed(&w));
+    QVERIFY(QTest::qWaitForWindowActive(&w));
     if (m_platform == QStringLiteral("xcb"))
         QSKIP("QTBUG-26424");
+    else if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT does not support move/resize", Abort);
     QCOMPARE(w.size(), defaultSize + QSize(150,150));
 }
 
@@ -4113,6 +4143,8 @@ void tst_QWidget::transientParent()
 
 void tst_QWidget::showNativeChild()
 {
+    if (m_platform == QStringLiteral("winrt"))
+        QSKIP("WinRT does not support setGeometry");
     QWidget topLevel;
     topLevel.setGeometry(QRect(m_availableTopLeft + QPoint(100, 100), m_testWidgetSize));
     topLevel.setWindowTitle(__FUNCTION__);
@@ -4295,6 +4327,8 @@ void tst_QWidget::update()
 
     // widgets are transparent by default, so both should get repaints
     {
+        if (m_platform == QStringLiteral("winrt"))
+            QEXPECT_FAIL("", "WinRT does not support setGeometry", Abort);
         QApplication::processEvents();
         QApplication::processEvents();
         QCOMPARE(child.numPaintEvents, 1);
@@ -4535,6 +4569,8 @@ void tst_QWidget::scroll()
         qApp->processEvents();
         QRegion dirty(QRect(0, 0, w, 10));
         dirty += QRegion(QRect(0, 10, 10, h - 10));
+        if (m_platform == QStringLiteral("winrt"))
+            QEXPECT_FAIL("", "WinRT does not support move/resize", Abort);
         QTRY_COMPARE(updateWidget.paintedRegion, dirty);
     }
 
@@ -4710,6 +4746,8 @@ void tst_QWidget::setWindowGeometry()
 {
     if (m_platform == QStringLiteral("xcb"))
          QSKIP("X11: Skip this test due to Window manager positioning issues.");
+    else if (m_platform == QStringLiteral("winrt"))
+        QSKIP("WinRT does not support setWindowGeometry");
 
     QFETCH(QList<QRect>, rects);
     QFETCH(int, windowFlags);
@@ -4876,6 +4914,8 @@ void tst_QWidget::windowMoveResize()
          QSKIP("X11: Skip this test due to Window manager positioning issues.");
     if (m_platform == QStringLiteral("wayland"))
         QSKIP("Wayland: This fails. Figure out why.");
+    if (m_platform == QStringLiteral("winrt"))
+        QSKIP("WinRT does not support move/resize");
 
     QFETCH(QList<QRect>, rects);
     QFETCH(int, windowFlags);
@@ -5196,6 +5236,9 @@ void tst_QWidget::moveChild()
 
     QTRY_COMPARE(parent.r, QRegion(parent.rect()) - child.geometry());
     QTRY_COMPARE(child.r, QRegion(child.rect()));
+
+    if (m_platform == QStringLiteral("winrt"))
+        QSKIP("WinRT does not support setGeometry (and we cannot use QEXPECT_FAIL because of VERIFY_COLOR)");
     VERIFY_COLOR(child, child.rect(),
                  child.color);
     VERIFY_COLOR(parent, QRegion(parent.rect()) - child.geometry(), parent.color);
@@ -5252,6 +5295,8 @@ void tst_QWidget::showAndMoveChild()
     child.move(desktopDimensions.width()/2, desktopDimensions.height()/2);
     qApp->processEvents();
 
+    if (m_platform == QStringLiteral("winrt"))
+        QSKIP("WinRT does not support setGeometry (and we cannot use QEXPECT_FAIL because of VERIFY_COLOR)");
     VERIFY_COLOR(child, child.rect(), Qt::blue);
     VERIFY_COLOR(parent, QRegion(parent.rect()) - child.geometry(), Qt::red);
 }
@@ -5340,6 +5385,8 @@ void tst_QWidget::multipleToplevelFocusCheck()
 
     if (m_platform == QStringLiteral("wayland"))
         QSKIP("Wayland: This fails. Figure out why.");
+    else if (m_platform == QStringLiteral("winrt"))
+        QSKIP("Winrt: Sometimes crashes in QTextLayout. - QTBUG-68297");
     TopLevelFocusCheck w1;
     TopLevelFocusCheck w2;
 
@@ -5498,6 +5545,8 @@ void tst_QWidget::setFocus()
             testWidget->clearFocus();
 
         child1.setFocus();
+        if (m_platform == QStringLiteral("winrt"))
+            QEXPECT_FAIL("", "WinRT fails here - QTBUG-68297", Abort);
         QVERIFY(!child1.hasFocus());
         QCOMPARE(window.focusWidget(), &child1);
         QCOMPARE(QApplication::focusWidget(), nullptr);
@@ -6184,6 +6233,8 @@ QByteArray EventRecorder::msgEventListMismatch(const EventList &expected, const 
 
 void tst_QWidget::childEvents()
 {
+    if (m_platform == QStringLiteral("winrt"))
+        QSKIP("WinRT: This fails. QTBUG-68297.");
     EventRecorder::EventList expected;
 
     // Move away the cursor; otherwise it might result in an enter event if it's
@@ -6579,6 +6630,8 @@ void tst_QWidget::renderInvisible()
 {
     if (m_platform == QStringLiteral("xcb"))
         QSKIP("QTBUG-26424");
+    if (m_platform == QStringLiteral("winrt"))
+        QSKIP("WinRT: This fails. QTBUG-68297.");
 
     QScopedPointer<QCalendarWidget> calendar(new QCalendarWidget);
     calendar->move(m_availableTopLeft + QPoint(100, 100));
@@ -7522,6 +7575,8 @@ void tst_QWidget::hideOpaqueChildWhileHidden()
     child.hide();
     child2.hide();
 
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
     QTRY_COMPARE(w.r, QRegion(child.geometry()));
 
     child.show();
@@ -7559,6 +7614,8 @@ void tst_QWidget::updateWhileMinimized()
     // Make sure update requests are discarded until the widget is shown again.
     widget.update(0, 0, 50, 50);
     QTest::qWait(10);
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
     QCOMPARE(widget.numPaintEvents, 0);
 
     // Restore window.
@@ -8086,6 +8143,8 @@ void tst_QWidget::doubleRepaint()
 #if defined(Q_OS_QNX)
     QEXPECT_FAIL("", "Platform does not support showMinimized()", Continue);
 #endif
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
    QCOMPARE(widget.numPaintEvents, 0);
    widget.numPaintEvents = 0;
 
@@ -8215,6 +8274,8 @@ void tst_QWidget::setMaskInResizeEvent()
 
     QRegion expectedParentUpdate(0, 0, 100, 10); // Old testWidget area.
     expectedParentUpdate += testWidget.geometry(); // New testWidget area.
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
     QTRY_COMPARE(w.paintedRegion, expectedParentUpdate);
     QTRY_COMPARE(testWidget.paintedRegion, testWidget.mask());
 
@@ -8659,6 +8720,8 @@ void tst_QWidget::translucentWidget()
         widgetSnapshot = label.grab(QRect(QPoint(0, 0), label.size()));
     const QImage actual = widgetSnapshot.toImage().convertToFormat(QImage::Format_RGB32);
     const QImage expected = pm.toImage().scaled(label.devicePixelRatioF() * pm.size());
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
     QCOMPARE(actual.size(),expected.size());
     QCOMPARE(actual,expected);
 }
@@ -9359,6 +9422,8 @@ void tst_QWidget::rectOutsideCoordinatesLimit_task144779()
     correct.fill(Qt::green);
     const QPixmap mainPixmap = grabFromWidget(&main, QRect(QPoint(0, 0), QSize(-1, -1)));
 
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
     QTRY_COMPARE(mainPixmap.toImage().convertToFormat(QImage::Format_RGB32),
                  correct.toImage().convertToFormat(QImage::Format_RGB32));
 #ifndef QT_NO_CURSOR
@@ -9450,6 +9515,8 @@ void tst_QWidget::activateWindow()
     qApp->processEvents();
 
     QTRY_VERIFY(mainwindow->isActiveWindow());
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
     QTRY_VERIFY(!mainwindow2->isActiveWindow());
 }
 
@@ -10610,6 +10677,8 @@ void tst_QWidget::resizeStaticContentsChildWidget_QTBUG35282()
 
     widget.showNormal();
     QVERIFY(QTest::qWaitForWindowExposed(&widget));
+    if (m_platform == QStringLiteral("winrt"))
+        QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
     QCOMPARE(childWidget.numPaintEvents, 0);
     childWidget.reset();
 

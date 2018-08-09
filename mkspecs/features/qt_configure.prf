@@ -157,7 +157,7 @@ defineTest(qtConfCommandline_optionalString) {
     nextok = $${3}
     isEmpty(val) {
         $$nextok: val = $$qtConfPeekNextCommandlineArg()
-        contains(val, "^-.*|[A-Z_]+=.*")|isEmpty(val): \
+        contains(val, "^-.*|[A-Z0-9_]+=.*")|isEmpty(val): \
             val = "yes"
         else: \
             val = $$qtConfGetNextCommandlineArg()
@@ -232,9 +232,9 @@ defineTest(qtConfParseCommandLine) {
         $$didCustomCall: \
             next()
 
-        contains(c, "([A-Z_]+)=(.*)") {
-            opt = $$replace(c, "^([A-Z_]+)=(.*)", "\\1")
-            val = $$replace(c, "^([A-Z_]+)=(.*)", "\\2")
+        contains(c, "([A-Z0-9_]+)=(.*)") {
+            opt = $$replace(c, "^([A-Z0-9_]+)=(.*)", "\\1")
+            val = $$replace(c, "^([A-Z0-9_]+)=(.*)", "\\2")
             for (cc, allConfigs) {
                 var = $$eval($${cc}.commandline.assignments.$${opt})
                 !isEmpty(var): \
@@ -343,7 +343,7 @@ defineReplace(qtConfToolchainSupportsFlag) {
     conftest = "int main() { return 0; }"
     write_file("$$test_out_dir/conftest.cpp", conftest)|error()
 
-    qtRunLoggedCommand("$$test_cmd_base $$QMAKE_CXX $${1} -o conftest-out conftest.cpp"): \
+    qtRunLoggedCommand("$$test_cmd_base $$QMAKE_CXX $$QMAKE_CXXFLAGS $${1} -o conftest-out conftest.cpp"): \
         return(true)
     return(false)
 }
@@ -1051,7 +1051,8 @@ defineTest(qtConfTest_compile) {
         QMAKE_MAKE = "$$QMAKE_MAKE clean && $$QMAKE_MAKE"
 
     mkpath($$test_out_dir)|error()
-    write_file($$test_base_out_dir/.qmake.cache)|error()
+    cont = "CONFIG += QTDIR_build"
+    write_file($$test_base_out_dir/.qmake.cache, cont)|error()
 
     $${1}.literal_args += $$qtConfAllLibraryArgs($$eval($${1}.resolved_uses))
 
@@ -1066,11 +1067,6 @@ defineTest(qtConfTest_compile) {
     }
 
     return(false)
-}
-
-defineTest(qtConfTest_verifySpec) {
-    qtConfTest_compile($$1): return(true)
-    qtConfFatalError("Cannot compile a minimal program. The toolchain or QMakeSpec is broken.", log)
 }
 
 defineTest(qtConfTest_files) {

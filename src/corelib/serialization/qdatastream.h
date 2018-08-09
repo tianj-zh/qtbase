@@ -98,7 +98,7 @@ public:
         Qt_5_9 = Qt_5_8,
         Qt_5_10 = Qt_5_9,
         Qt_5_11 = Qt_5_10,
-        Qt_5_12 = Qt_5_11,
+        Qt_5_12 = 18,
 #if QT_VERSION >= 0x050d00
 #error Add the datastream version for this Qt version and update Qt_DefaultCompiledVersion
 #endif
@@ -152,7 +152,7 @@ public:
     QDataStream &operator>>(qint16 &i);
     QDataStream &operator>>(quint16 &i);
     QDataStream &operator>>(qint32 &i);
-    QDataStream &operator>>(quint32 &i);
+    inline QDataStream &operator>>(quint32 &i);
     QDataStream &operator>>(qint64 &i);
     QDataStream &operator>>(quint64 &i);
     QDataStream &operator>>(std::nullptr_t &ptr) { ptr = nullptr; return *this; }
@@ -168,7 +168,7 @@ public:
     QDataStream &operator<<(qint16 i);
     QDataStream &operator<<(quint16 i);
     QDataStream &operator<<(qint32 i);
-    QDataStream &operator<<(quint32 i);
+    inline QDataStream &operator<<(quint32 i);
     QDataStream &operator<<(qint64 i);
     QDataStream &operator<<(quint64 i);
     QDataStream &operator<<(std::nullptr_t) { return *this; }

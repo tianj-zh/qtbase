@@ -56,6 +56,8 @@
 #include <private/qglobal_p.h>
 #include <private/qutfcodec_p.h>
 
+#include <math.h>
+
 QT_BEGIN_NAMESPACE
 
 namespace QtCbor {
@@ -124,6 +126,8 @@ class QCborContainerPrivate : public QSharedData
     ~QCborContainerPrivate();
 
 public:
+    enum ContainerDisposition { CopyContainer, MoveContainer };
+
     QByteArray::size_type usedData = 0;
     QByteArray data;
     QVector<QtCbor::Element> elements;
@@ -153,7 +157,8 @@ public:
         char *ptr = data.begin() + offset;
         auto b = new (ptr) QtCbor::ByteData;
         b->len = len;
-        memcpy(b->byte(), block, len);
+        if (block)
+            memcpy(b->byte(), block, len);
 
         return offset;
     }
@@ -184,32 +189,32 @@ public:
         return e.container;
     }
 
-    void replaceAt_complex(QtCbor::Element &e, const QCborValue &value);
-    void replaceAt_internal(QtCbor::Element &e, const QCborValue &value)
+    void replaceAt_complex(QtCbor::Element &e, const QCborValue &value, ContainerDisposition disp);
+    void replaceAt_internal(QtCbor::Element &e, const QCborValue &value, ContainerDisposition disp)
     {
         if (value.container)
-            return replaceAt_complex(e, value);
+            return replaceAt_complex(e, value, disp);
 
         e.value = value.value_helper();
         e.type = value.type();
         if (value.isContainer())
             e.container = nullptr;
     }
-    void replaceAt(qsizetype idx, const QCborValue &value)
+    void replaceAt(qsizetype idx, const QCborValue &value, ContainerDisposition disp = CopyContainer)
     {
         QtCbor::Element &e = elements[idx];
         if (e.flags & QtCbor::Element::IsContainer) {
             e.container->deref();
             e.container = nullptr;
             e.flags = {};
-        } else if (e.flags & QtCbor::Element::HasByteData) {
-            usedData -= byteData(idx)->len + sizeof(QtCbor::ByteData);
+        } else if (auto b = byteData(e)) {
+            usedData -= b->len + sizeof(QtCbor::ByteData);
         }
-        replaceAt_internal(e, value);
+        replaceAt_internal(e, value, disp);
     }
-    void insertAt(qsizetype idx, const QCborValue &value)
+    void insertAt(qsizetype idx, const QCborValue &value, ContainerDisposition disp = CopyContainer)
     {
-        replaceAt_internal(*elements.insert(elements.begin() + idx, {}), value);
+        replaceAt_internal(*elements.insert(elements.begin() + idx, {}), value, disp);
     }
 
     void append(QtCbor::Undefined)
@@ -239,10 +244,14 @@ public:
         appendByteData(s.latin1(), s.size(), QCborValue::String,
                        QtCbor::Element::StringIsAscii);
     }
+    void appendAsciiString(const QString &s);
     void append(const QString &s)
     {
-        appendByteData(reinterpret_cast<const char *>(s.constData()), s.size() * 2,
-                       QCborValue::String, QtCbor::Element::StringIsUtf16);
+        if (QtPrivate::isAscii(s))
+            appendAsciiString(s);
+        else
+            appendByteData(reinterpret_cast<const char *>(s.constData()), s.size() * 2,
+                           QCborValue::String, QtCbor::Element::StringIsUtf16);
     }
     void append(const QCborValue &v)
     {
@@ -270,12 +279,18 @@ public:
         return data->toUtf8String();
     }
 
-    static QCborValue makeValue(QCborValue::Type type, qint64 n, QCborContainerPrivate *d = nullptr)
+    static void resetValue(QCborValue &v)
+    {
+        v.container = nullptr;
+    }
+
+    static QCborValue makeValue(QCborValue::Type type, qint64 n, QCborContainerPrivate *d = nullptr,
+                                ContainerDisposition disp = CopyContainer)
     {
         QCborValue result(type);
         result.n = n;
         result.container = d;
-        if (d)
+        if (d && disp == CopyContainer)
             d->ref.ref();
         return result;
     }
@@ -292,6 +307,24 @@ public:
             return makeValue(e.type, -1, e.container);
         } else if (e.flags & QtCbor::Element::HasByteData) {
             return makeValue(e.type, idx, const_cast<QCborContainerPrivate *>(this));
+        }
+        return makeValue(e.type, e.value);
+    }
+    QCborValue extractAt_complex(QtCbor::Element e);
+    QCborValue extractAt(qsizetype idx)
+    {
+        QtCbor::Element e;
+        qSwap(e, elements[idx]);
+
+        if (e.flags & QtCbor::Element::IsContainer) {
+            if (e.type == QCborValue::Tag && e.container->elements.size() != 2) {
+                // invalid tags can be created due to incomplete parsing
+                e.container->deref();
+                return makeValue(QCborValue::Invalid, 0, nullptr);
+            }
+            return makeValue(e.type, -1, e.container, MoveContainer);
+        } else if (e.flags & QtCbor::Element::HasByteData) {
+            return extractAt_complex(e);
         }
         return makeValue(e.type, e.value);
     }

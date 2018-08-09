@@ -1,7 +1,7 @@
 import qbs
 
 Project {
-    references: "sharedmemoryhelper"
+    references: "producerconsumer"
 
     QtAutotest {
         name: "tst_qsharedmemory"
@@ -12,5 +12,5 @@ Project {
             condition: qbs.targetOS.contains("linux")
             cpp.dynamicLibraries: base.concat("rt")
         }
-        files: "test/tst_qsharedmemory.cpp" }
+        files: "tst_qsharedmemory.cpp" }
 }

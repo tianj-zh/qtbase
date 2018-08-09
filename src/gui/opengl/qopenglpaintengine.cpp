@@ -263,13 +263,19 @@ GLuint QOpenGL2PaintEngineExPrivate::bindTexture(const QGradient &gradient)
 struct ImageWithBindOptions
 {
     const QImage &image;
-    QOpenGLTextureCache::BindOptions options;
+    QOpenGLTextureUploader::BindOptions options;
 };
 
 template<>
 GLuint QOpenGL2PaintEngineExPrivate::bindTexture(const ImageWithBindOptions &imageWithOptions)
 {
     return QOpenGLTextureCache::cacheForContext(ctx)->bindTexture(ctx, imageWithOptions.image, imageWithOptions.options);
+}
+
+inline static bool isPowerOfTwo(int x)
+{
+    // Assumption: x >= 1
+    return x == (x & -x);
 }
 
 void QOpenGL2PaintEngineExPrivate::updateBrushTexture()
@@ -304,16 +310,18 @@ void QOpenGL2PaintEngineExPrivate::updateBrushTexture()
         currentBrushImage = currentBrush.textureImage();
 
         int max_texture_size = ctx->d_func()->maxTextureSize();
-        if (currentBrushImage.width() > max_texture_size || currentBrushImage.height() > max_texture_size)
-            currentBrushImage = currentBrushImage.scaled(max_texture_size, max_texture_size, Qt::KeepAspectRatio);
+        QSize newSize = currentBrushImage.size();
+        newSize = newSize.boundedTo(QSize(max_texture_size, max_texture_size));
+        if (!QOpenGLContext::currentContext()->functions()->hasOpenGLFeature(QOpenGLFunctions::NPOTTextureRepeat)) {
+            if (!isPowerOfTwo(newSize.width()) || !isPowerOfTwo(newSize.height())) {
+                newSize.setHeight(qNextPowerOfTwo(newSize.height() - 1));
+                newSize.setWidth(qNextPowerOfTwo(newSize.width() - 1));
+            }
+        }
+        if (currentBrushImage.size() != newSize)
+            currentBrushImage = currentBrushImage.scaled(newSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 
         GLuint wrapMode = GL_REPEAT;
-        if (QOpenGLContext::currentContext()->isOpenGLES()) {
-            // OpenGL ES does not support GL_REPEAT wrap modes for NPOT textures. So instead,
-            // we emulate GL_REPEAT by only taking the fractional part of the texture coords
-            // in the qopenglslTextureBrushSrcFragmentShader program.
-            wrapMode = GL_CLAMP_TO_EDGE;
-        }
 
         updateTexture(QT_BRUSH_TEXTURE_UNIT, currentBrushImage, wrapMode, filterMode, ForceUpdate);
     }
@@ -864,20 +872,18 @@ void QOpenGL2PaintEngineExPrivate::fill(const QVectorPath& path)
 
             if (data) {
                 cache = (QOpenGL2PEVectorPathCache *) data->data;
-                // Check if scale factor is exceeded for curved paths and generate curves if so...
-                if (path.isCurved()) {
-                    qreal scaleFactor = cache->iscale / inverseScale;
-                    if (scaleFactor < 0.5 || scaleFactor > 2.0) {
+                // Check if scale factor is exceeded and regenerate if so...
+                qreal scaleFactor = cache->iscale / inverseScale;
+                if (scaleFactor < 0.5 || scaleFactor > 2.0) {
 #ifdef QT_OPENGL_CACHE_AS_VBOS
-                        glDeleteBuffers(1, &cache->vbo);
-                        cache->vbo = 0;
-                        Q_ASSERT(cache->ibo == 0);
+                    glDeleteBuffers(1, &cache->vbo);
+                    cache->vbo = 0;
+                    Q_ASSERT(cache->ibo == 0);
 #else
-                        free(cache->vertices);
-                        Q_ASSERT(cache->indices == 0);
+                    free(cache->vertices);
+                    Q_ASSERT(cache->indices == 0);
 #endif
-                        updateCache = true;
-                    }
+                    updateCache = true;
                 }
             } else {
                 cache = new QOpenGL2PEVectorPathCache;
@@ -946,19 +952,17 @@ void QOpenGL2PaintEngineExPrivate::fill(const QVectorPath& path)
 
             if (data) {
                 cache = (QOpenGL2PEVectorPathCache *) data->data;
-                // Check if scale factor is exceeded for curved paths and generate curves if so...
-                if (path.isCurved()) {
-                    qreal scaleFactor = cache->iscale / inverseScale;
-                    if (scaleFactor < 0.5 || scaleFactor > 2.0) {
+                // Check if scale factor is exceeded and regenerate if so...
+                qreal scaleFactor = cache->iscale / inverseScale;
+                if (scaleFactor < 0.5 || scaleFactor > 2.0) {
 #ifdef QT_OPENGL_CACHE_AS_VBOS
-                        glDeleteBuffers(1, &cache->vbo);
-                        glDeleteBuffers(1, &cache->ibo);
+                    glDeleteBuffers(1, &cache->vbo);
+                    glDeleteBuffers(1, &cache->ibo);
 #else
-                        free(cache->vertices);
-                        free(cache->indices);
+                    free(cache->vertices);
+                    free(cache->indices);
 #endif
-                        updateCache = true;
-                    }
+                    updateCache = true;
                 }
             } else {
                 cache = new QOpenGL2PEVectorPathCache;
@@ -1558,7 +1562,7 @@ void QOpenGL2PaintEngineEx::drawImage(const QRectF& dest, const QImage& image, c
     ensureActive();
     d->transferMode(ImageDrawingMode);
 
-    QOpenGLTextureCache::BindOptions bindOption = QOpenGLTextureCache::PremultipliedAlphaBindOption;
+    QOpenGLTextureUploader::BindOptions bindOption = QOpenGLTextureUploader::PremultipliedAlphaBindOption;
     // Use specialized bind for formats we have specialized shaders for.
     switch (image.format()) {
     case QImage::Format_RGBA8888:
@@ -1569,14 +1573,14 @@ void QOpenGL2PaintEngineEx::drawImage(const QRectF& dest, const QImage& image, c
     case QImage::Format_Alpha8:
         if (ctx->functions()->hasOpenGLFeature(QOpenGLFunctions::TextureRGFormats)) {
             d->shaderManager->setSrcPixelType(QOpenGLEngineShaderManager::AlphaImageSrc);
-            bindOption = QOpenGLTextureCache::UseRedFor8BitBindOption;
+            bindOption = QOpenGLTextureUploader::UseRedFor8BitBindOption;
         } else
             d->shaderManager->setSrcPixelType(QOpenGLEngineShaderManager::ImageSrc);
         break;
     case QImage::Format_Grayscale8:
         if (ctx->functions()->hasOpenGLFeature(QOpenGLFunctions::TextureRGFormats)) {
             d->shaderManager->setSrcPixelType(QOpenGLEngineShaderManager::GrayscaleImageSrc);
-            bindOption = QOpenGLTextureCache::UseRedFor8BitBindOption;
+            bindOption = QOpenGLTextureUploader::UseRedFor8BitBindOption;
         } else
             d->shaderManager->setSrcPixelType(QOpenGLEngineShaderManager::ImageSrc);
         break;

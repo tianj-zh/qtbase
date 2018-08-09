@@ -42,6 +42,8 @@
 
 QT_BEGIN_NAMESPACE
 
+using namespace QtCbor;
+
 /*!
     \class QCborMap
     \inmodule QtCore
@@ -197,7 +199,7 @@ QT_BEGIN_NAMESPACE
 
     \sa isEmpty()
  */
-QCborMap::QCborMap() Q_DECL_NOTHROW
+QCborMap::QCborMap() noexcept
     : d(nullptr)
 {
 }
@@ -205,7 +207,7 @@ QCborMap::QCborMap() Q_DECL_NOTHROW
 /*!
     Creates a QCborMap object that is a copy of \a other.
  */
-QCborMap::QCborMap(const QCborMap &other) Q_DECL_NOTHROW
+QCborMap::QCborMap(const QCborMap &other) noexcept
     : d(other.d)
 {
 }
@@ -237,7 +239,7 @@ QCborMap::~QCborMap()
     Replaces the contents of this object with a copy of \a other, then returns
     a reference to this object.
  */
-QCborMap &QCborMap::operator=(const QCborMap &other) Q_DECL_NOTHROW
+QCborMap &QCborMap::operator=(const QCborMap &other) noexcept
 {
     d = other.d;
     return *this;
@@ -276,7 +278,7 @@ QCborMap &QCborMap::operator=(const QCborMap &other) Q_DECL_NOTHROW
 
     \sa isEmpty()
  */
-qsizetype QCborMap::size() const Q_DECL_NOTHROW
+qsizetype QCborMap::size() const noexcept
 {
     return d ? d->elements.size() / 2 : 0;
 }
@@ -342,6 +344,22 @@ QVector<QCborValue> QCborMap::keys() const
  */
 
 /*!
+    \fn QCborValue QCborMap::take(qint64 key)
+
+    Removes the key \a key and the corresponding value from the map and returns
+    the value, if it is found. If the map contains no such key, this function does nothing.
+
+    If the map contains more than one key equal to \a key, it is undefined
+    which one this function will remove. QCborMap does not allow inserting
+    duplicate keys, but it is possible to create such a map by decoding a CBOR
+    stream with them. They are usually not permitted and having duplicate keys
+    is usually an indication of a problem in the sender.
+
+    \sa value(qint64), operator[](qint64), find(qint64), contains(qint64),
+      take(QLatin1String), take(const QString &), take(const QCborValue &), insert()
+ */
+
+/*!
     \fn void QCborMap::remove(qint64 key)
 
     Removes the key \a key and the corresponding value from the map, if it is
@@ -358,7 +376,7 @@ QVector<QCborValue> QCborMap::keys() const
  */
 
 /*!
-    \fn bool QCborMap::contains(qint64 key)
+    \fn bool QCborMap::contains(qint64 key) const
 
     Returns true if this map contains a key-value pair identified by key \a
     key. CBOR recommends using integer keys, since they occupy less space and
@@ -451,6 +469,22 @@ QCborValueRef QCborMap::operator[](qint64 key)
  */
 
 /*!
+    \fn QCborValue QCborMap::take(QLatin1String key)
+
+    Removes the key \a key and the corresponding value from the map and returns
+    the value, if it is found. If the map contains no such key, this function does nothing.
+
+    If the map contains more than one key equal to \a key, it is undefined
+    which one this function will remove. QCborMap does not allow inserting
+    duplicate keys, but it is possible to create such a map by decoding a CBOR
+    stream with them. They are usually not permitted and having duplicate keys
+    is usually an indication of a problem in the sender.
+
+    \sa value(QLatin1String), operator[](QLatin1String), find(QLatin1String), contains(QLatin1String),
+      take(qint64), take(const QString &), take(const QCborValue &), insert()
+ */
+
+/*!
     \fn void QCborMap::remove(QLatin1String key)
     \overload
 
@@ -468,7 +502,7 @@ QCborValueRef QCborMap::operator[](qint64 key)
  */
 
 /*!
-    \fn bool QCborMap::contains(QLatin1String key)
+    \fn bool QCborMap::contains(QLatin1String key) const
     \overload
 
     Returns true if this map contains a key-value pair identified by key \a
@@ -562,6 +596,22 @@ QCborValueRef QCborMap::operator[](QLatin1String key)
  */
 
 /*!
+    \fn QCborValue QCborMap::take(const QString &key)
+
+    Removes the key \a key and the corresponding value from the map and returns
+    the value, if it is found. If the map contains no such key, this function does nothing.
+
+    If the map contains more than one key equal to \a key, it is undefined
+    which one this function will remove. QCborMap does not allow inserting
+    duplicate keys, but it is possible to create such a map by decoding a CBOR
+    stream with them. They are usually not permitted and having duplicate keys
+    is usually an indication of a problem in the sender.
+
+    \sa value(const QString &), operator[](const QString &), find(const QString &), contains(const QString &),
+      take(QLatin1String), take(qint64), take(const QCborValue &), insert()
+ */
+
+/*!
     \fn void QCborMap::remove(const QString &key)
     \overload
 
@@ -580,7 +630,7 @@ QCborValueRef QCborMap::operator[](QLatin1String key)
  */
 
 /*!
-    \fn bool QCborMap::contains(const QString &key)
+    \fn bool QCborMap::contains(const QString &key) const
     \overload
 
     Returns true if this map contains a key-value pair identified by key \a
@@ -673,6 +723,22 @@ QCborValueRef QCborMap::operator[](const QString & key)
  */
 
 /*!
+    \fn QCborValue QCborMap::take(const QCborValue &key)
+
+    Removes the key \a key and the corresponding value from the map and returns
+    the value, if it is found. If the map contains no such key, this function does nothing.
+
+    If the map contains more than one key equal to \a key, it is undefined
+    which one this function will remove. QCborMap does not allow inserting
+    duplicate keys, but it is possible to create such a map by decoding a CBOR
+    stream with them. They are usually not permitted and having duplicate keys
+    is usually an indication of a problem in the sender.
+
+    \sa value(const QCborValue &), operator[](const QCborValue &), find(const QCborValue &), contains(const QCborValue &),
+      take(QLatin1String), take(const QString &), take(qint64), insert()
+ */
+
+/*!
     \fn void QCborMap::remove(const QCborValue &key)
 
     Removes the key \a key and the corresponding value from the map, if it is
@@ -690,7 +756,7 @@ QCborValueRef QCborMap::operator[](const QString & key)
  */
 
 /*!
-    \fn bool QCborMap::contains(const QCborValue &key)
+    \fn bool QCborMap::contains(const QCborValue &key) const
 
     Returns true if this map contains a key-value pair identified by key \a
     key.
@@ -946,7 +1012,7 @@ QCborMap::const_iterator QCborMap::constFind(const QCborValue &key) const
     by \a value.
 
     \sa erase(), remove(qint64), value(qint64), operator[](qint64), find(qint64),
-        contains(qint64)
+        contains(qint64), take(qint64), extract()
  */
 
 /*!
@@ -960,7 +1026,7 @@ QCborMap::const_iterator QCborMap::constFind(const QCborValue &key) const
     by \a value.
 
     \sa erase(), remove(QLatin1String), value(QLatin1String), operator[](QLatin1String),
-        find(QLatin1String), contains(QLatin1String)
+        find(QLatin1String), contains(QLatin1String), take(QLatin1String), extract()
  */
 
 /*!
@@ -974,7 +1040,7 @@ QCborMap::const_iterator QCborMap::constFind(const QCborValue &key) const
     by \a value.
 
     \sa erase(), remove(const QString &), value(const QString &), operator[](const QString &),
-        find(const QString &), contains(const QString &)
+        find(const QString &), contains(const QString &), take(const QString &), extract()
  */
 
 /*!
@@ -988,7 +1054,7 @@ QCborMap::const_iterator QCborMap::constFind(const QCborValue &key) const
     by \a value.
 
     \sa erase(), remove(const QCborValue &), value(const QCborValue &), operator[](const QCborValue &),
-        find(const QCborValue &), contains(const QCborValue &)
+        find(const QCborValue &), contains(const QCborValue &), take(const QCborValue &), extract()
  */
 
 /*!
@@ -1001,7 +1067,7 @@ QCborMap::const_iterator QCborMap::constFind(const QCborValue &key) const
     If the map already had a key equal to \c{v.first}, its value will be
     overwritten by \c{v.second}.
 
-    \sa operator[], erase()
+    \sa operator[], erase(), extract()
  */
 
 
@@ -1011,7 +1077,7 @@ QCborMap::const_iterator QCborMap::constFind(const QCborValue &key) const
     Removes the key-value pair pointed to by the map iterator \a it and returns a
     pointer to the next element, after removal.
 
-    \sa remove(), begin(), end(), insert()
+    \sa remove(), begin(), end(), insert(), extract()
  */
 
 /*!
@@ -1031,6 +1097,24 @@ QCborMap::iterator QCborMap::erase(QCborMap::iterator it)
     d->removeAt(it.item.i - 1);
     d->removeAt(it.item.i - 1);
     return it;
+}
+
+/*!
+    Extracts a value from the map at the position indicated by iterator \a it
+    and returns the value so extracted.
+
+    \sa insert(), erase(), take(), remove()
+ */
+QCborValue QCborMap::extract(iterator it)
+{
+    detach();
+    QCborValue v = d->extractAt(it.item.i);
+    // remove both key and value
+    // ### optimize?
+    d->removeAt(it.item.i - 1);
+    d->removeAt(it.item.i - 1);
+
+    return v;
 }
 
 /*!
@@ -1549,5 +1633,19 @@ void QCborMap::detach(qsizetype reserved)
 
     \sa operator+=(), operator-()
 */
+
+#if !defined(QT_NO_DEBUG_STREAM)
+QDebug operator<<(QDebug dbg, const QCborMap &m)
+{
+    QDebugStateSaver saver(dbg);
+    dbg.nospace() << "QCborMap{";
+    const char *open = "{";
+    for (auto pair : m) {
+        dbg << open << pair.first <<  ", " << pair.second << '}';
+        open = ", {";
+    }
+    return dbg << '}';
+}
+#endif
 
 QT_END_NAMESPACE

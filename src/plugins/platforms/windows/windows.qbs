@@ -30,8 +30,7 @@ QtPlugin {
             result.push(qtbaseDir + "/src/3rdparty/wintab");
         return result;
     }
-    cpp.defines: base.filter(function(d) { return !["QT_NO_FOREACH"].contains(d); })
-        .concat(
+    cpp.defines: base.concat(
             "QT_NO_CAST_FROM_ASCII",
             "LIBEGL_NAME=" + Qt.gui.libEGLName,
             "LIBGLESV2_NAME=" + Qt.gui.libGLESv2Name)
@@ -91,6 +90,8 @@ QtPlugin {
         "qwindowsole.h",
         "qwindowsopengltester.cpp",
         "qwindowsopengltester.h",
+        "qwindowspointerhandler.cpp",
+        "qwindowspointerhandler.h",
         "qwindowsscreen.cpp",
         "qwindowsscreen.h",
         "qwindowsservices.cpp",

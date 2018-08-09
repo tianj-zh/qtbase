@@ -37,8 +37,8 @@
 **
 ****************************************************************************/
 
-#include <QtCore/qconfig.h>
-#ifndef QT_NO_ACCESSIBILITY
+#include <QtGui/qtguiglobal.h>
+#if QT_CONFIG(accessibility)
 
 #include "qwindowsuiaaccessibility.h"
 #include "qwindowsuiamainprovider.h"
@@ -68,21 +68,18 @@ QWindowsUiaAccessibility::~QWindowsUiaAccessibility()
 // Handles UI Automation window messages.
 bool QWindowsUiaAccessibility::handleWmGetObject(HWND hwnd, WPARAM wParam, LPARAM lParam, LRESULT *lResult)
 {
-    if (lParam == LPARAM(UiaRootObjectId)) {
+    // Start handling accessibility internally
+    QGuiApplicationPrivate::platformIntegration()->accessibility()->setActive(true);
 
-        // Start handling accessibility internally
-        QGuiApplicationPrivate::platformIntegration()->accessibility()->setActive(true);
+    // Ignoring all requests while starting up / shutting down
+    if (QCoreApplication::startingUp() || QCoreApplication::closingDown())
+        return false;
 
-        // Ignoring all requests while starting up / shutting down
-        if (QCoreApplication::startingUp() || QCoreApplication::closingDown())
-            return false;
-
-        if (QWindow *window = QWindowsContext::instance()->findWindow(hwnd)) {
-            if (QAccessibleInterface *accessible = window->accessibleRoot()) {
-                QWindowsUiaMainProvider *provider = QWindowsUiaMainProvider::providerForAccessible(accessible);
-                *lResult = QWindowsUiaWrapper::instance()->returnRawElementProvider(hwnd, wParam, lParam, provider);
-                return true;
-            }
+    if (QWindow *window = QWindowsContext::instance()->findWindow(hwnd)) {
+        if (QAccessibleInterface *accessible = window->accessibleRoot()) {
+            QWindowsUiaMainProvider *provider = QWindowsUiaMainProvider::providerForAccessible(accessible);
+            *lResult = QWindowsUiaWrapper::instance()->returnRawElementProvider(hwnd, wParam, lParam, provider);
+            return true;
         }
     }
     return false;
@@ -107,19 +104,15 @@ void QWindowsUiaAccessibility::notifyAccessibilityUpdate(QAccessibleEvent *event
         return;
 
     switch (event->type()) {
-
     case QAccessible::Focus:
         QWindowsUiaMainProvider::notifyFocusChange(event);
         break;
-
     case QAccessible::StateChanged:
         QWindowsUiaMainProvider::notifyStateChange(static_cast<QAccessibleStateChangeEvent *>(event));
         break;
-
     case QAccessible::ValueChanged:
         QWindowsUiaMainProvider::notifyValueChange(static_cast<QAccessibleValueChangeEvent *>(event));
         break;
-
     case QAccessible::TextAttributeChanged:
     case QAccessible::TextColumnChanged:
     case QAccessible::TextInserted:
@@ -129,7 +122,6 @@ void QWindowsUiaAccessibility::notifyAccessibilityUpdate(QAccessibleEvent *event
     case QAccessible::TextCaretMoved:
         QWindowsUiaMainProvider::notifyTextChange(event);
         break;
-
     default:
         break;
     }
@@ -137,4 +129,4 @@ void QWindowsUiaAccessibility::notifyAccessibilityUpdate(QAccessibleEvent *event
 
 QT_END_NAMESPACE
 
-#endif // QT_NO_ACCESSIBILITY
+#endif // QT_CONFIG(accessibility)

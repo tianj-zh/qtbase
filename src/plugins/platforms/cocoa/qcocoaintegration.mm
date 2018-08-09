@@ -59,6 +59,8 @@
 #include <qpa/qplatformoffscreensurface.h>
 #include <QtCore/qcoreapplication.h>
 
+#include <QtPlatformHeaders/qcocoanativecontext.h>
+
 #include <QtGui/private/qcoregraphics_p.h>
 
 #ifdef QT_WIDGETS_LIB
@@ -225,8 +227,6 @@ QCocoaIntegration::Options QCocoaIntegration::options() const
     return mOptions;
 }
 
-Q_LOGGING_CATEGORY(lcQpaScreen, "qt.qpa.screen");
-
 /*!
     \brief Synchronizes the screen list, adds new screens, removes deleted ones
 */
@@ -255,7 +255,7 @@ void QCocoaIntegration::updateScreens()
                 continue;
         }
         QCocoaScreen* screen = nullptr;
-        foreach (QCocoaScreen* existingScr, mScreens)
+        foreach (QCocoaScreen* existingScr, mScreens) {
             // NSScreen documentation says do not cache the array returned from [NSScreen screens].
             // However in practice, we can identify a screen by its pointer: if resolution changes,
             // the NSScreen object will be the same instance, just with different values.
@@ -263,10 +263,10 @@ void QCocoaIntegration::updateScreens()
                 screen = existingScr;
                 break;
             }
+        }
         if (screen) {
             remainingScreens.remove(screen);
-            screen->updateGeometry();
-            qCDebug(lcQpaScreen) << "Updated properties of" << screen;
+            screen->updateProperties();
         } else {
             screen = new QCocoaScreen(i);
             mScreens.append(screen);
@@ -361,10 +361,8 @@ QPlatformOffscreenSurface *QCocoaIntegration::createPlatformOffscreenSurface(QOf
 #ifndef QT_NO_OPENGL
 QPlatformOpenGLContext *QCocoaIntegration::createPlatformOpenGLContext(QOpenGLContext *context) const
 {
-    QCocoaGLContext *glContext = new QCocoaGLContext(context->format(),
-                                                     context->shareHandle(),
-                                                     context->nativeHandle());
-    context->setNativeHandle(glContext->nativeHandle());
+    QCocoaGLContext *glContext = new QCocoaGLContext(context);
+    context->setNativeHandle(QVariant::fromValue<QCocoaNativeContext>(glContext->nativeContext()));
     return glContext;
 }
 #endif

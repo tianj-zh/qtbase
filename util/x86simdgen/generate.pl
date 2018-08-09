@@ -88,42 +88,37 @@ print q{// This is a generated file. DO NOT EDIT.
 
 QT_BEGIN_NAMESPACE
 
-// Macros for QT_FUNCTION_TARGET (for Clang and GCC)};
+// used only to indicate that the CPU detection was initialized
+#define QSimdInitialized                            (Q_UINT64_C(1) << 0)};
 
-# #Define the feature string names for Clang and GCC
-for my $feature (@features) {
+# Print the enum
+my $lastleaf;
+for (my $i = 0; $i < scalar @features; ++$i) {
+    my $feature = $features[$i];
+    # Leaf header:
+    printf "\n// in %s:\n", $leaves{$feature->{leaf}}
+        if $feature->{leaf} ne $lastleaf;
+    $lastleaf = $feature->{leaf};
+
+    # Feature
+    printf "#define CpuFeature%-33s (Q_UINT64_C(1) << %d)\n", $feature->{id}, $i + 1;
+
+    # Feature string names for Clang and GCC
     my $str = $feature->{name};
     $str .= ",$feature->{depends}" if defined($feature->{depends});
     printf "#define QT_FUNCTION_TARGET_STRING_%-17s \"%s\"\n",
         $feature->{id}, $str;
 }
 
-# Print the enum
-printf "\nenum CPUFeatures {";
-my $lastleaf;
-for (my $i = 0; $i < scalar @features; ++$i) {
-    my $feature = $features[$i];
-    # Leaf header:
-    printf "\n    // in %s:\n", $leaves{$feature->{leaf}}
-        if $feature->{leaf} ne $lastleaf;
-    $lastleaf = $feature->{leaf};
-
-    # Feature
-    printf "    CpuFeature%-13s = %d,\n", $feature->{id}, $i + 1;
-}
-
 print q{
-    // used only to indicate that the CPU detection was initialized
-    QSimdInitialized = 1
-\};
-
 static const quint64 qCompilerCpuFeatures = 0};
 
 # And print the compiler-enabled features part:
-for my $feature (@features) {
+for (my $i = 0; $i < scalar @features; ++$i) {
+    my $feature = $features[$i];
     printf
         "#ifdef __%s__\n" .
-        "         | (Q_UINT64_C(1) << CpuFeature%s)\n" .
+        "         | CpuFeature%s\n" .
         "#endif\n",
         $feature->{id}, $feature->{id};
 }
@@ -149,7 +144,7 @@ if (my $cpp = shift @ARGV) {
 
 print "// This is a generated file. DO NOT EDIT.";
 print "// Please see util/x86simdgen/generate.pl";
-print "#include <qglobal.h>";
+print '#include "qsimd_p.h"';
 print "";
 
 # Now generate the string table and bit-location array
@@ -189,4 +184,16 @@ for (my $j = 0; $j < scalar @features; ++$j) {
         $feature->{leaf}, $feature->{bit};
     $lastname = $feature->{name};
 }
-print "  // $lastname\n};";
+printf qq{  // $lastname
+\};
+
+// List of AVX512 features (see detectProcessorFeatures())
+static const quint64 AllAVX512 = 0};
+
+# Print AVX512 features
+for (my $j = 0; $j < scalar @features; ++$j) {
+    my $feature = $features[$j];
+    $_ = $feature->{id};
+    printf "\n        | CpuFeature%s", $_ if /AVX512/;
+}
+print ";";

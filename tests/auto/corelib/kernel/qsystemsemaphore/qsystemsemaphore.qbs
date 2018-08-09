@@ -1,12 +1,12 @@
 import qbs
 
 Project {
-    references: "systemsemaphorehelper"
+    references: "acquirerelease"
 
     QtAutotest {
         name: "tst_qsystemsemaphore"
         condition: base && !qbs.targetOS.contains("android") && Qt.core.config.systemsemaphore
         consoleApplication: true
-        files: "test/tst_qsystemsemaphore.cpp"
+        files: "tst_qsystemsemaphore.cpp"
     }
 }

@@ -143,6 +143,8 @@ Qt::ApplicationState QGuiApplicationPrivate::applicationState = Qt::ApplicationI
 
 bool QGuiApplicationPrivate::highDpiScalingUpdated = false;
 
+QPointer<QWindow> QGuiApplicationPrivate::currentDragWindow;
+
 QVector<QGuiApplicationPrivate::TabletPointData> QGuiApplicationPrivate::tabletDevicePoints;
 
 QPlatformIntegration *QGuiApplicationPrivate::platform_integration = 0;
@@ -668,6 +670,7 @@ QGuiApplication::~QGuiApplication()
     QGuiApplicationPrivate::currentMousePressWindow = QGuiApplicationPrivate::currentMouseWindow = nullptr;
     QGuiApplicationPrivate::applicationState = Qt::ApplicationInactive;
     QGuiApplicationPrivate::highDpiScalingUpdated = false;
+    QGuiApplicationPrivate::currentDragWindow = nullptr;
     QGuiApplicationPrivate::tabletDevicePoints.clear();
 #ifndef QT_NO_SESSIONMANAGER
     QGuiApplicationPrivate::is_fallback_session_management_enabled = true;
@@ -1297,10 +1300,18 @@ void QGuiApplicationPrivate::createPlatformIntegration()
 #if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
     QByteArray sessionType = qgetenv("XDG_SESSION_TYPE");
     if (!sessionType.isEmpty()) {
-        if (sessionType == QByteArrayLiteral("x11") && !platformName.contains(QByteArrayLiteral("xcb")))
+        if (sessionType == QByteArrayLiteral("x11") && !platformName.contains(QByteArrayLiteral("xcb"))) {
             platformName = QByteArrayLiteral("xcb");
-        else if (sessionType == QByteArrayLiteral("wayland") && !platformName.contains(QByteArrayLiteral("wayland")))
-            platformName = QByteArrayLiteral("wayland");
+        } else if (sessionType == QByteArrayLiteral("wayland") && !platformName.contains(QByteArrayLiteral("wayland"))) {
+            QByteArray currentDesktop = qgetenv("XDG_CURRENT_DESKTOP").toLower();
+            QByteArray sessionDesktop = qgetenv("XDG_SESSION_DESKTOP").toLower();
+            if (currentDesktop.contains("gnome") || sessionDesktop.contains("gnome")) {
+                qInfo() << "Warning: Ignoring XDG_SESSION_TYPE=wayland on Gnome."
+                        << "Use QT_QPA_PLATFORM=wayland to run on Wayland anyway.";
+            } else {
+                platformName = QByteArrayLiteral("wayland");
+            }
+        }
     }
 #ifdef QT_QPA_DEFAULT_PLATFORM_NAME
     // Add it as fallback in case XDG_SESSION_TYPE is something wrong
@@ -1401,7 +1412,7 @@ void QGuiApplicationPrivate::eventDispatcherReady()
 
 void QGuiApplicationPrivate::init()
 {
-    Q_TRACE(qguiapplicationprivate_init_entry);
+    Q_TRACE(QGuiApplicationPrivate_init_entry);
 
 #if defined(Q_OS_MACOS)
     QMacAutoReleasePool pool;
@@ -1566,7 +1577,7 @@ void QGuiApplicationPrivate::init()
         QObject::connect(q, &QGuiApplication::applicationNameChanged,
                          q, &QGuiApplication::applicationDisplayNameChanged);
 
-    Q_TRACE(qguiapplicationprivate_init_exit);
+    Q_TRACE(QGuiApplicationPrivate_init_exit);
 }
 
 extern void qt_cleanupFontDatabase();
@@ -1804,7 +1815,7 @@ bool QGuiApplicationPrivate::processNativeEvent(QWindow *window, const QByteArra
 
 void QGuiApplicationPrivate::processWindowSystemEvent(QWindowSystemInterfacePrivate::WindowSystemEvent *e)
 {
-    Q_TRACE(qguiapplicationprivate_processwsevents_entry, e->type);
+    Q_TRACE(QGuiApplicationPrivate_processWindowSystemEvent_entry, e->type);
 
     switch(e->type) {
     case QWindowSystemInterfacePrivate::Mouse:
@@ -1853,19 +1864,19 @@ void QGuiApplicationPrivate::processWindowSystemEvent(QWindowSystemInterfacePriv
                 static_cast<QWindowSystemInterfacePrivate::CloseEvent *>(e));
         break;
     case QWindowSystemInterfacePrivate::ScreenOrientation:
-        QGuiApplicationPrivate::reportScreenOrientationChange(
+        QGuiApplicationPrivate::processScreenOrientationChange(
                 static_cast<QWindowSystemInterfacePrivate::ScreenOrientationEvent *>(e));
         break;
     case QWindowSystemInterfacePrivate::ScreenGeometry:
-        QGuiApplicationPrivate::reportGeometryChange(
+        QGuiApplicationPrivate::processScreenGeometryChange(
                 static_cast<QWindowSystemInterfacePrivate::ScreenGeometryEvent *>(e));
         break;
     case QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInch:
-        QGuiApplicationPrivate::reportLogicalDotsPerInchChange(
+        QGuiApplicationPrivate::processScreenLogicalDotsPerInchChange(
                 static_cast<QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent *>(e));
         break;
     case QWindowSystemInterfacePrivate::ScreenRefreshRate:
-        QGuiApplicationPrivate::reportRefreshRateChange(
+        QGuiApplicationPrivate::processScreenRefreshRateChange(
                 static_cast<QWindowSystemInterfacePrivate::ScreenRefreshRateEvent *>(e));
         break;
     case QWindowSystemInterfacePrivate::ThemeChange:
@@ -1915,7 +1926,7 @@ void QGuiApplicationPrivate::processWindowSystemEvent(QWindowSystemInterfacePriv
         break;
     }
 
-    Q_TRACE(qguiapplicationprivate_processwsevents_exit, e->type);
+    Q_TRACE(QGuiApplicationPrivate_processWindowSystemEvent_exit, e->type);
 }
 
 /*! \internal
@@ -2327,11 +2338,11 @@ void QGuiApplicationPrivate::processWindowScreenChangedEvent(QWindowSystemInterf
     if (QWindow *window  = wse->window.data()) {
         if (window->screen() == wse->screen.data())
             return;
-        if (window->isTopLevel()) {
+        if (QWindow *topLevelWindow = window->d_func()->topLevelWindow(QWindow::ExcludeTransients)) {
             if (QScreen *screen = wse->screen.data())
-                window->d_func()->setTopLevelScreen(screen, false /* recreate */);
+                topLevelWindow->d_func()->setTopLevelScreen(screen, false /* recreate */);
             else // Fall back to default behavior, and try to find some appropriate screen
-                window->setScreen(0);
+                topLevelWindow->setScreen(0);
         }
         // we may have changed scaling, so trigger resize event if needed
         if (window->handle()) {
@@ -2896,7 +2907,7 @@ void QGuiApplicationPrivate::processTouchEvent(QWindowSystemInterfacePrivate::To
     }
 }
 
-void QGuiApplicationPrivate::reportScreenOrientationChange(QWindowSystemInterfacePrivate::ScreenOrientationEvent *e)
+void QGuiApplicationPrivate::processScreenOrientationChange(QWindowSystemInterfacePrivate::ScreenOrientationEvent *e)
 {
     // This operation only makes sense after the QGuiApplication constructor runs
     if (QCoreApplication::startingUp())
@@ -2933,7 +2944,7 @@ void QGuiApplicationPrivate::reportScreenOrientationChange(QScreen *s)
     QCoreApplication::sendEvent(QCoreApplication::instance(), &event);
 }
 
-void QGuiApplicationPrivate::reportGeometryChange(QWindowSystemInterfacePrivate::ScreenGeometryEvent *e)
+void QGuiApplicationPrivate::processScreenGeometryChange(QWindowSystemInterfacePrivate::ScreenGeometryEvent *e)
 {
     // This operation only makes sense after the QGuiApplication constructor runs
     if (QCoreApplication::startingUp())
@@ -2976,7 +2987,7 @@ void QGuiApplicationPrivate::reportGeometryChange(QWindowSystemInterfacePrivate:
     }
 }
 
-void QGuiApplicationPrivate::reportLogicalDotsPerInchChange(QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent *e)
+void QGuiApplicationPrivate::processScreenLogicalDotsPerInchChange(QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent *e)
 {
     // This operation only makes sense after the QGuiApplication constructor runs
     if (QCoreApplication::startingUp())
@@ -2991,7 +3002,7 @@ void QGuiApplicationPrivate::reportLogicalDotsPerInchChange(QWindowSystemInterfa
     emit s->logicalDotsPerInchChanged(s->logicalDotsPerInch());
 }
 
-void QGuiApplicationPrivate::reportRefreshRateChange(QWindowSystemInterfacePrivate::ScreenRefreshRateEvent *e)
+void QGuiApplicationPrivate::processScreenRefreshRateChange(QWindowSystemInterfacePrivate::ScreenRefreshRateEvent *e)
 {
     // This operation only makes sense after the QGuiApplication constructor runs
     if (QCoreApplication::startingUp())
@@ -3092,7 +3103,6 @@ QPlatformDragQtResponse QGuiApplicationPrivate::processDrag(QWindow *w, const QM
 {
     updateMouseAndModifierButtonState(buttons, modifiers);
 
-    static QPointer<QWindow> currentDragWindow;
     static Qt::DropAction lastAcceptedDropAction = Qt::IgnoreAction;
     QPlatformDrag *platformDrag = platformIntegration()->drag();
     if (!platformDrag || (w && w->d_func()->blockedByModalWindow)) {
@@ -3101,8 +3111,7 @@ QPlatformDragQtResponse QGuiApplicationPrivate::processDrag(QWindow *w, const QM
     }
 
     if (!dropData) {
-        if (currentDragWindow.data() == w)
-            currentDragWindow = 0;
+        currentDragWindow = nullptr;
         QDragLeaveEvent e;
         QGuiApplication::sendEvent(w, &e);
         lastAcceptedDropAction = Qt::IgnoreAction;
@@ -3140,6 +3149,8 @@ QPlatformDropQtResponse QGuiApplicationPrivate::processDrop(QWindow *w, const QM
                                                             Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers)
 {
     updateMouseAndModifierButtonState(buttons, modifiers);
+
+    currentDragWindow = nullptr;
 
     QDropEvent de(p, supportedActions, dropData, buttons, modifiers);
     QGuiApplication::sendEvent(w, &de);

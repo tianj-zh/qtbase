@@ -106,6 +106,8 @@ private slots:
     void number();
     void toInt_data();
     void toInt();
+    void toDouble_data();
+    void toDouble();
     void blockSizeCalculations();
 
     void resizeAfterFromRawData();
@@ -858,15 +860,38 @@ void tst_QByteArray::qstricmp()
     if ( actual != 0 ) {
         actual = (actual < 0 ? -1 : 1);
     }
-    QCOMPARE(expected, actual);
+    QCOMPARE(actual, expected);
+
+    actual = ::qstricmp("012345679abcd" + str1.toLatin1(), "012345679AbCd" + str2.toLatin1());
+    if ( actual != 0 ) {
+        actual = (actual < 0 ? -1 : 1);
+    }
+    QCOMPARE(actual, expected);
+
+    actual = str1.toLatin1().compare(str2.toLatin1(), Qt::CaseInsensitive);
+    if ( actual != 0 ) {
+        actual = (actual < 0 ? -1 : 1);
+    }
+    QCOMPARE(actual, expected);
+
+    actual = str1.toLatin1().compare(str2.toLatin1().constData(), Qt::CaseInsensitive);
+    if ( actual != 0 ) {
+        actual = (actual < 0 ? -1 : 1);
+    }
+    QCOMPARE(actual, expected);
 }
 
 void tst_QByteArray::qstricmp_singularities()
 {
     QCOMPARE(::qstricmp(0, 0), 0);
-    QVERIFY(::qstricmp(0, "a") != 0);
-    QVERIFY(::qstricmp("a", 0) != 0);
+    QVERIFY(::qstricmp(0, "a") < 0);
+    QVERIFY(::qstricmp("a", 0) > 0);
     QCOMPARE(::qstricmp("", ""), 0);
+    QCOMPARE(QByteArray().compare(nullptr, Qt::CaseInsensitive), 0);
+    QCOMPARE(QByteArray().compare("", Qt::CaseInsensitive), 0);
+    QVERIFY(QByteArray("a").compare(nullptr, Qt::CaseInsensitive) > 0);
+    QVERIFY(QByteArray("a").compare("", Qt::CaseInsensitive) > 0);
+    QVERIFY(QByteArray().compare("a", Qt::CaseInsensitive) < 0);
 }
 
 void tst_QByteArray::qstrnicmp_singularities()
@@ -876,6 +901,9 @@ void tst_QByteArray::qstrnicmp_singularities()
     QVERIFY(::qstrnicmp("a", 0, 123) != 0);
     QCOMPARE(::qstrnicmp("", "", 123), 0);
     QCOMPARE(::qstrnicmp("a", "B", 0), 0);
+    QCOMPARE(QByteArray().compare(QByteArray(), Qt::CaseInsensitive), 0);
+    QVERIFY(QByteArray().compare(QByteArray("a"), Qt::CaseInsensitive) < 0);
+    QVERIFY(QByteArray("a").compare(QByteArray(), Qt::CaseInsensitive) > 0);
 }
 
 void tst_QByteArray::chop_data()
@@ -1291,6 +1319,11 @@ void tst_QByteArray::toInt_data()
     QTest::newRow("base 0-3") << QByteArray("010") << 0 << int(8) << true;
     QTest::newRow("empty") << QByteArray() << 0 << int(0) << false;
 
+    QTest::newRow("leading space") << QByteArray(" 100") << 10 << int(100) << true;
+    QTest::newRow("trailing space") << QByteArray("100 ") << 10 << int(100) << true;
+    QTest::newRow("leading junk") << QByteArray("x100") << 10 << int(0) << false;
+    QTest::newRow("trailing junk") << QByteArray("100x") << 10 << int(0) << false;
+
     // using fromRawData
     QTest::newRow("raw1") << QByteArray::fromRawData("1", 1) << 10 << 1 << true;
     QTest::newRow("raw2") << QByteArray::fromRawData("1foo", 1) << 10 << 1 << true;
@@ -1315,6 +1348,34 @@ void tst_QByteArray::toInt()
     QCOMPARE( number, expectednumber );
 }
 
+void tst_QByteArray::toDouble_data()
+{
+    QTest::addColumn<QByteArray>("string");
+    QTest::addColumn<double>("expectedNumber");
+    QTest::addColumn<bool>("expectedOk");
+
+    QTest::newRow("decimal") << QByteArray("1.2345") << 1.2345 << true;
+    QTest::newRow("exponent lowercase") << QByteArray("1.2345e+01") << 12.345 << true;
+    QTest::newRow("exponent uppercase") << QByteArray("1.2345E+02") << 123.45 << true;
+    QTest::newRow("leading spaces") << QByteArray(" \n\r\t1.2345") << 1.2345 << true;
+    QTest::newRow("trailing spaces") << QByteArray("1.2345 \n\r\t") << 1.2345 << true;
+    QTest::newRow("leading junk") << QByteArray("x1.2345") << 0.0 << false;
+    QTest::newRow("trailing junk") << QByteArray("1.2345x") << 0.0 << false;
+}
+
+void tst_QByteArray::toDouble()
+{
+    QFETCH(QByteArray, string);
+    QFETCH(double, expectedNumber);
+    QFETCH(bool, expectedOk);
+
+    bool ok;
+    const double number = string.toDouble(&ok);
+
+    QCOMPARE(ok, expectedOk);
+    QCOMPARE(number, expectedNumber);
+}
+
 void tst_QByteArray::toULong_data()
 {
     QTest::addColumn<QByteArray>("str");
@@ -1328,6 +1389,11 @@ void tst_QByteArray::toULong_data()
     QTest::newRow("empty") << QByteArray("") << 10 << 0UL << false;
     QTest::newRow("ulong1") << QByteArray("3234567890") << 10 << 3234567890UL << true;
     QTest::newRow("ulong2") << QByteArray("fFFfFfFf") << 16 << 0xFFFFFFFFUL << true;
+
+    QTest::newRow("leading spaces") << QByteArray(" \n\r\t100") << 10 << 100UL << true;
+    QTest::newRow("trailing spaces") << QByteArray("100 \n\r\t") << 10 << 100UL << true;
+    QTest::newRow("leading junk") << QByteArray("x100") << 10 << 0UL << false;
+    QTest::newRow("trailing junk") << QByteArray("100x") << 10 << 0UL << false;
 }
 
 void tst_QByteArray::toULong()
@@ -1353,6 +1419,10 @@ void tst_QByteArray::toULongLong_data()
     QTest::newRow("default") << QByteArray() << 10 << (qulonglong)0 << false;
     QTest::newRow("out of base bound") << QByteArray("c") << 10 << (qulonglong)0 << false;
 
+    QTest::newRow("leading spaces") << QByteArray(" \n\r\t100") << 10 << qulonglong(100) << true;
+    QTest::newRow("trailing spaces") << QByteArray("100 \n\r\t") << 10 << qulonglong(100) << true;
+    QTest::newRow("leading junk") << QByteArray("x100") << 10 << qulonglong(0) << false;
+    QTest::newRow("trailing junk") << QByteArray("100x") << 10 << qulonglong(0) << false;
 }
 
 void tst_QByteArray::toULongLong()
@@ -1758,6 +1828,12 @@ void tst_QByteArray::compare()
     const bool isEqual   = result == 0;
     const bool isLess    = result < 0;
     const bool isGreater = result > 0;
+
+    int cmp = str1.compare(str2);
+    if (cmp)
+        cmp = (cmp < 0 ? -1 : 1);
+
+    QCOMPARE(cmp, result);
 
     // basic tests:
     QCOMPARE(str1 == str2, isEqual);

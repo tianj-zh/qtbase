@@ -664,10 +664,10 @@ void QNetworkRequest::setAttribute(Attribute code, const QVariant &value)
 
 #ifndef QT_NO_SSL
 /*!
-    Returns this network request's SSL configuration. By default, no
-    SSL settings are specified.
+    Returns this network request's SSL configuration. By default this is the same
+    as QSslConfiguration::defaultConfiguration().
 
-    \sa setSslConfiguration()
+    \sa setSslConfiguration(), QSslConfiguration::defaultConfiguration()
 */
 QSslConfiguration QNetworkRequest::sslConfiguration() const
 {
@@ -682,9 +682,6 @@ QSslConfiguration QNetworkRequest::sslConfiguration() const
     the SSL protocol (SSLv2, SSLv3, TLSv1.0 where applicable), the CA
     certificates and the ciphers that the SSL backend is allowed to
     use.
-
-    By default, no SSL configuration is set, which allows the backends
-    to choose freely what configuration is best for them.
 
     \sa sslConfiguration(), QSslConfiguration::defaultConfiguration()
 */
@@ -918,11 +915,11 @@ static int parseHeaderName(const QByteArray &headerName)
 
     switch (tolower(headerName.at(0))) {
     case 'c':
-        if (qstricmp(headerName.constData(), "content-type") == 0)
+        if (headerName.compare("content-type", Qt::CaseInsensitive) == 0)
             return QNetworkRequest::ContentTypeHeader;
-        else if (qstricmp(headerName.constData(), "content-length") == 0)
+        else if (headerName.compare("content-length", Qt::CaseInsensitive) == 0)
             return QNetworkRequest::ContentLengthHeader;
-        else if (qstricmp(headerName.constData(), "cookie") == 0)
+        else if (headerName.compare("cookie", Qt::CaseInsensitive) == 0)
             return QNetworkRequest::CookieHeader;
         else if (qstricmp(headerName.constData(), "content-disposition") == 0)
             return QNetworkRequest::ContentDispositionHeader;
@@ -943,21 +940,21 @@ static int parseHeaderName(const QByteArray &headerName)
         break;
 
     case 'l':
-        if (qstricmp(headerName.constData(), "location") == 0)
+        if (headerName.compare("location", Qt::CaseInsensitive) == 0)
             return QNetworkRequest::LocationHeader;
-        else if (qstricmp(headerName.constData(), "last-modified") == 0)
+        else if (headerName.compare("last-modified", Qt::CaseInsensitive) == 0)
             return QNetworkRequest::LastModifiedHeader;
         break;
 
     case 's':
-        if (qstricmp(headerName.constData(), "set-cookie") == 0)
+        if (headerName.compare("set-cookie", Qt::CaseInsensitive) == 0)
             return QNetworkRequest::SetCookieHeader;
-        else if (qstricmp(headerName.constData(), "server") == 0)
+        else if (headerName.compare("server", Qt::CaseInsensitive) == 0)
             return QNetworkRequest::ServerHeader;
         break;
 
     case 'u':
-        if (qstricmp(headerName.constData(), "user-agent") == 0)
+        if (headerName.compare("user-agent", Qt::CaseInsensitive) == 0)
             return QNetworkRequest::UserAgentHeader;
         break;
     }
@@ -1100,7 +1097,7 @@ QNetworkHeadersPrivate::findRawHeader(const QByteArray &key) const
     RawHeadersList::ConstIterator it = rawHeaders.constBegin();
     RawHeadersList::ConstIterator end = rawHeaders.constEnd();
     for ( ; it != end; ++it)
-        if (qstricmp(it->first.constData(), key.constData()) == 0)
+        if (it->first.compare(key, Qt::CaseInsensitive) == 0)
             return it;
 
     return end;                 // not found
@@ -1181,7 +1178,7 @@ void QNetworkHeadersPrivate::setCookedHeader(QNetworkRequest::KnownHeaders heade
 void QNetworkHeadersPrivate::setRawHeaderInternal(const QByteArray &key, const QByteArray &value)
 {
     auto firstEqualsKey = [&key](const RawHeaderPair &header) {
-        return qstricmp(header.first.constData(), key.constData()) == 0;
+        return header.first.compare(key, Qt::CaseInsensitive) == 0;
     };
     rawHeaders.erase(std::remove_if(rawHeaders.begin(), rawHeaders.end(),
                                     firstEqualsKey),

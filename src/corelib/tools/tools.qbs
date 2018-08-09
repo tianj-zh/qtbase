@@ -54,6 +54,7 @@ Group {
         "qlocale_p.h",
         "qlocale_tools.cpp",
         "qlocale_tools_p.h",
+        "qmakearray_p.h",
         "qmap.cpp",
         "qmap.h",
         "qmargins.cpp",

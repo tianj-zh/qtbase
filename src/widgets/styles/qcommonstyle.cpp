@@ -879,9 +879,16 @@ QSize QCommonStylePrivate::viewItemSize(const QStyleOptionViewItem *option, int 
             QRect bounds = option->rect;
             switch (option->decorationPosition) {
             case QStyleOptionViewItem::Left:
-            case QStyleOptionViewItem::Right:
-                bounds.setWidth(wrapText && bounds.isValid() ? bounds.width() - 2 * textMargin : QFIXED_MAX);
+            case QStyleOptionViewItem::Right: {
+                if (wrapText && bounds.isValid()) {
+                    int width = bounds.width() - 2 * textMargin;
+                    if (option->features & QStyleOptionViewItem::HasDecoration)
+                        width -= option->decorationSize.width() + 2 * textMargin;
+                    bounds.setWidth(width);
+                } else
+                    bounds.setWidth(QFIXED_MAX);
                 break;
+            }
             case QStyleOptionViewItem::Top:
             case QStyleOptionViewItem::Bottom:
                 if (wrapText)
@@ -893,12 +900,8 @@ QSize QCommonStylePrivate::viewItemSize(const QStyleOptionViewItem *option, int 
                 break;
             }
 
-            if (wrapText) {
-                if (option->features & QStyleOptionViewItem::HasCheckIndicator)
-                    bounds.setWidth(bounds.width() - proxyStyle->pixelMetric(QStyle::PM_IndicatorWidth) - 2 * textMargin);
-                if (option->features & QStyleOptionViewItem::HasDecoration)
-                    bounds.setWidth(bounds.width() - option->decorationSize.width() - 2 * textMargin);
-            }
+            if (wrapText && option->features & QStyleOptionViewItem::HasCheckIndicator)
+                bounds.setWidth(bounds.width() - proxyStyle->pixelMetric(QStyle::PM_IndicatorWidth) - 2 * textMargin);
 
             const int lineWidth = bounds.width();
             const QSizeF size = viewItemTextLayout(textLayout, lineWidth);
@@ -933,54 +936,53 @@ void QCommonStylePrivate::viewItemDrawText(QPainter *p, const QStyleOptionViewIt
 
     viewItemTextLayout(textLayout, textRect.width());
 
-    qreal height = 0;
-    qreal width = 0;
-    const int lineCount = textLayout.lineCount();
-    QHash<int, QString> elidedTexts;
-    for (int j = 0; j < lineCount; ++j) {
-        const QTextLine line = textLayout.lineAt(j);
-        if (j + 1 <= lineCount - 1) {
-            const QTextLine nextLine = textLayout.lineAt(j + 1);
-            if ((nextLine.y() + nextLine.height()) > textRect.height()) {
-                int start = line.textStart();
-                int length = line.textLength() + nextLine.textLength();
-                const QStackTextEngine engine(textLayout.text().mid(start, length), option->font);
-                elidedTexts.insert(j, engine.elidedText(option->textElideMode, textRect.width()));
-                height += line.height();
-                width = textRect.width();
-                continue;
-            }
-        }
-        if (line.naturalTextWidth() > textRect.width()) {
-            int start = line.textStart();
-            int length = line.textLength();
-            const QStackTextEngine engine(textLayout.text().mid(start, length), option->font);
-            elidedTexts.insert(j, engine.elidedText(option->textElideMode, textRect.width()));
-            height += line.height();
-            width = textRect.width();
-            continue;
-        }
-        width = qMax<qreal>(width, line.width());
-        height += line.height();
-    }
-
+    const QRectF boundingRect = textLayout.boundingRect();
     const QRect layoutRect = QStyle::alignedRect(option->direction, option->displayAlignment,
-                                                 QSize(int(width), int(height)), textRect);
+                                                 boundingRect.size().toSize(), textRect);
     const QPointF position = layoutRect.topLeft();
+    const int lineCount = textLayout.lineCount();
+
+    qreal height = 0;
     for (int i = 0; i < lineCount; ++i) {
         const QTextLine line = textLayout.lineAt(i);
-        auto it = elidedTexts.constFind(i);
-        if (it != elidedTexts.constEnd()) {
-            const QString &elidedText = it.value();
-            qreal x = position.x() + line.x();
-            qreal y = position.y() + line.y() + line.ascent();
+        height += line.height();
+
+        // above visible rect
+        if (height + layoutRect.top() <= textRect.top())
+            continue;
+
+        const int start = line.textStart();
+        const int length = line.textLength();
+
+        const bool drawElided = line.naturalTextWidth() > textRect.width();
+        bool elideLastVisibleLine = false;
+        if (!drawElided && i + 1 < lineCount) {
+            const QTextLine nextLine = textLayout.lineAt(i + 1);
+            const int nextHeight = height + nextLine.height() / 2;
+            // elide when less than the next half line is visible
+            if (nextHeight + layoutRect.top() > textRect.height() + textRect.top())
+                elideLastVisibleLine = true;
+        }
+
+        if (drawElided || elideLastVisibleLine) {
+            QString text = textLayout.text().mid(start, length);
+            if (elideLastVisibleLine)
+                text += QChar(0x2026);
+            const QStackTextEngine engine(text, option->font);
+            const QString elidedText = engine.elidedText(option->textElideMode, textRect.width());
+            const QPointF pos(position.x() + line.x(),
+                              position.y() + line.y() + line.ascent());
             p->save();
             p->setFont(option->font);
-            p->drawText(QPointF(x, y), elidedText);
+            p->drawText(pos, elidedText);
             p->restore();
-            continue;
+        } else {
+            line.draw(p, position);
         }
-        line.draw(p, position);
+
+        // below visible text, can stop
+        if (height + layoutRect.top() >= textRect.bottom())
+            break;
     }
 }
 
@@ -5306,6 +5308,9 @@ int QCommonStyle::styleHint(StyleHint sh, const QStyleOption *opt, const QWidget
         break;
     case SH_SpinBox_ButtonsInsideFrame:
         ret = true;
+        break;
+    case SH_SpinBox_StepModifier:
+        ret = Qt::ControlModifier;
         break;
     default:
         ret = 0;

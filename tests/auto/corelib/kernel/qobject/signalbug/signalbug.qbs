@@ -1,9 +1,10 @@
 import qbs
 
 QtAutotestHelperApp {
-    name: "signalbug"
+    targetName: "signalbug_helper"
     condition: !targetsUWP
     consoleApplication: true
+    installSuffix: ""
 
     Depends { name: "Qt.core" }
 

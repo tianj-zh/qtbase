@@ -42,6 +42,8 @@
 
 QT_BEGIN_NAMESPACE
 
+using namespace QtCbor;
+
 /*!
     \class QCborArray
     \inmodule QtCore
@@ -111,7 +113,7 @@ QT_BEGIN_NAMESPACE
 /*!
     Constructs an empty QCborArray.
  */
-QCborArray::QCborArray() Q_DECL_NOTHROW
+QCborArray::QCborArray() noexcept
     : d(nullptr)
 {
 }
@@ -119,7 +121,7 @@ QCborArray::QCborArray() Q_DECL_NOTHROW
 /*!
     Copies the contents of \a other into this object.
  */
-QCborArray::QCborArray(const QCborArray &other) Q_DECL_NOTHROW
+QCborArray::QCborArray(const QCborArray &other) noexcept
     : d(other.d)
 {
 }
@@ -146,7 +148,7 @@ QCborArray::~QCborArray()
     Replaces the contents of this array with that found in \a other, then
     returns a reference to this object.
  */
-QCborArray &QCborArray::operator=(const QCborArray &other) Q_DECL_NOTHROW
+QCborArray &QCborArray::operator=(const QCborArray &other) noexcept
 {
     d = other.d;
     return *this;
@@ -178,7 +180,7 @@ QCborArray &QCborArray::operator=(const QCborArray &other) Q_DECL_NOTHROW
 
     \sa isEmpty()
  */
-qsizetype QCborArray::size() const Q_DECL_NOTHROW
+qsizetype QCborArray::size() const noexcept
 {
     return d ? d->elements.size() : 0;
 }
@@ -296,11 +298,14 @@ QCborValue QCborArray::at(qsizetype i) const
  */
 
 /*!
+    \fn void QCborArray::insert(qsizetype i, const QCborValue &value)
+    \fn void QCborArray::insert(qsizetype i, QCborValue &&value)
+
     Inserts \a value into the array at position \a i in this array. The array
     must have at least \a i elements before the insertion.
 
     \sa at(), operator[](), first(), last(), prepend(), append(),
-        removeAt(), takeAt()
+        removeAt(), takeAt(), extract()
  */
 void QCborArray::insert(qsizetype i, const QCborValue &value)
 {
@@ -311,8 +316,37 @@ void QCborArray::insert(qsizetype i, const QCborValue &value)
     d->insertAt(i, value);
 }
 
+void QCborArray::insert(qsizetype i, QCborValue &&value)
+{
+    Q_ASSERT(size_t(i) <= size_t(size()) || i == -1);
+    if (i < 0)
+        i = size();
+    detach(qMax(i + 1, size()));
+    d->insertAt(i, value, QCborContainerPrivate::MoveContainer);
+    QCborContainerPrivate::resetValue(value);
+}
+
+/*!
+    \fn QCborValue QCborArray::extract(iterator it)
+    \fn QCborValue QCborArray::extract(const_iterator it)
+
+    Extracts a value from the array at the position indicated by iterator \a it
+    and returns the value so extracted.
+
+    \sa insert(), erase(), takeAt(), removeAt()
+ */
+QCborValue QCborArray::extract(iterator it)
+{
+    detach();
+
+    QCborValue v = d->extractAt(it.item.i);
+    d->removeAt(it.item.i);
+    return v;
+}
+
 /*!
     \fn void QCborArray::prepend(const QCborValue &value)
+    \fn void QCborArray::prepend(QCborValue &&value)
 
     Prepends \a value into the array before any other elements it may already
     contain.
@@ -323,6 +357,7 @@ void QCborArray::insert(qsizetype i, const QCborValue &value)
 
 /*!
     \fn void QCborArray::append(const QCborValue &value)
+    \fn void QCborArray::append(QCborValue &&value)
 
     Appends \a value into the array after all other elements it may already
     contain.
@@ -544,6 +579,7 @@ bool QCborArray::contains(const QCborValue &value) const
 
 /*!
     \fn QCborArray::iterator QCborArray::insert(iterator before, const QCborValue &value)
+    \fn QCborArray::iterator QCborArray::insert(const_iterator before, const QCborValue &value)
     \overload
 
     Inserts \a value into this array before element \a before and returns an
@@ -554,6 +590,7 @@ bool QCborArray::contains(const QCborValue &value) const
 
 /*!
     \fn QCborArray::iterator QCborArray::erase(iterator it)
+    \fn QCborArray::iterator QCborArray::erase(const_iterator it)
 
     Removes the element pointed to by the array iterator \a it from this array,
     then returns an iterator to the next element (the one that took the same
@@ -753,7 +790,7 @@ void QCborArray::detach(qsizetype reserved)
 */
 
 /*!
-    \fn QCborValueRef QCborArray::Iterator::operator[](qsizetype j) const
+    \fn QCborValueRef QCborArray::Iterator::operator[](qsizetype j)
 
     Returns a modifiable reference to the item at a position \a j steps forward
     from the item pointed to by this iterator.
@@ -999,7 +1036,7 @@ void QCborArray::detach(qsizetype reserved)
 */
 
 /*!
-    \fn QCborValue QCborArray::ConstIterator::operator[](qsizetype j) const
+    \fn const QCborValueRef QCborArray::ConstIterator::operator[](qsizetype j)
 
     Returns the item at a position \a j steps forward from the item pointed to
     by this iterator.
@@ -1020,9 +1057,10 @@ void QCborArray::detach(qsizetype reserved)
 */
 
 /*!
-    \fn bool QCborArray::ConstIterator::operator!=(const ConstIterator &other) const
+    \fn bool QCborArray::ConstIterator::operator!=(const Iterator &o) const
+    \fn bool QCborArray::ConstIterator::operator!=(const ConstIterator &o) const
 
-    Returns \c true if \a other points to a different entry in the array than
+    Returns \c true if \a o points to a different entry in the array than
     this iterator; otherwise returns \c false.
 
     \sa operator==()
@@ -1137,5 +1175,19 @@ void QCborArray::detach(qsizetype reserved)
 
     Returns the offset of this iterator relative to \a other.
 */
+
+#if !defined(QT_NO_DEBUG_STREAM)
+QDebug operator<<(QDebug dbg, const QCborArray &a)
+{
+    QDebugStateSaver saver(dbg);
+    dbg.nospace() << "QCborArray{";
+    const char *comma = "";
+    for (auto v : a) {
+        dbg << comma << v;
+        comma = ", ";
+    }
+    return dbg << '}';
+}
+#endif
 
 QT_END_NAMESPACE

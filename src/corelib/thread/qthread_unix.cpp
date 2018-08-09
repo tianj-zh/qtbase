@@ -339,13 +339,7 @@ void *QThreadPrivate::start(void *arg)
             data->quitNow = thr->d_func()->exited;
         }
 
-        QAbstractEventDispatcher *eventDispatcher = data->eventDispatcher.load();
-        if (!eventDispatcher) {
-            eventDispatcher = createEventDispatcher(data);
-            data->eventDispatcher.storeRelease(eventDispatcher);
-        }
-
-        eventDispatcher->startingUp();
+        data->ensureEventDispatcher();
 
 #if (defined(Q_OS_LINUX) || defined(Q_OS_MAC) || defined(Q_OS_QNX))
         {
@@ -519,6 +513,8 @@ void QThread::yieldCurrentThread()
     sched_yield();
 }
 
+#endif // QT_NO_THREAD
+
 static timespec makeTimespec(time_t secs, long nsecs)
 {
     struct timespec ts;
@@ -541,6 +537,8 @@ void QThread::usleep(unsigned long usecs)
 {
     qt_nanosleep(makeTimespec(usecs / 1000 / 1000, usecs % (1000*1000) * 1000));
 }
+
+#ifndef QT_NO_THREAD
 
 #ifdef QT_HAS_THREAD_PRIORITY_SCHEDULING
 #if defined(Q_OS_QNX)

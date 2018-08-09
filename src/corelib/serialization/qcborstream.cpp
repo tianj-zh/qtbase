@@ -42,6 +42,7 @@
 #include <private/qnumeric_p.h>
 #include <private/qutfcodec_p.h>
 #include <qbuffer.h>
+#include <qdebug.h>
 #include <qstack.h>
 
 QT_BEGIN_NAMESPACE
@@ -57,11 +58,14 @@ QT_WARNING_DISABLE_GCC("-Wunused-function")
 QT_WARNING_DISABLE_CLANG("-Wunused-function")
 QT_WARNING_DISABLE_CLANG("-Wundefined-internal")
 QT_WARNING_DISABLE_MSVC(4334) // '<<': result of 32-bit shift implicitly converted to 64 bits (was 64-bit shift intended?)
+
+#define CBOR_ENCODER_NO_CHECK_USER
+
+#define CBOR_NO_VALIDATION_API  1
+#define CBOR_NO_PRETTY_API      1
 #define CBOR_API static inline
 #define CBOR_PRIVATE_API static inline
 #define CBOR_INLINE_API static inline
-
-#define CBOR_ENCODER_NO_CHECK_USER
 
 #include <cbor.h>
 
@@ -92,26 +96,6 @@ static CborError cbor_encoder_close_container_checked(CborEncoder*, const CborEn
     return CborErrorInternalError;
 }
 static CborError _cbor_value_dup_string(const CborValue *, void **, size_t *, CborValue *)
-{
-    Q_UNREACHABLE();
-    return CborErrorInternalError;
-}
-static CborError cbor_value_to_pretty_stream(CborStreamFunction, void*, CborValue*, int)
-{
-    Q_UNREACHABLE();
-    return CborErrorInternalError;
-}
-static CborError cbor_value_to_pretty_advance(FILE*, CborValue*)
-{
-    Q_UNREACHABLE();
-    return CborErrorInternalError;
-}
-static CborError cbor_value_to_pretty_advance_flags(FILE *, CborValue *, int)
-{
-    Q_UNREACHABLE();
-    return CborErrorInternalError;
-}
-static CborError cbor_value_validate(const CborValue *, int)
 {
     Q_UNREACHABLE();
     return CborErrorInternalError;
@@ -171,6 +155,33 @@ Q_STATIC_ASSERT(int(QCborStreamReader::Invalid) == CborInvalidType);
        QCborStreamReader::toSimpleType(), QCborValue::isSimpleType(), QCborValue::toSimpleType()
  */
 
+Q_CORE_EXPORT const char *qt_cbor_simpletype_id(QCborSimpleType st)
+{
+    switch (st) {
+    case QCborSimpleType::False:
+        return "False";
+    case QCborSimpleType::True:
+        return "True";
+    case QCborSimpleType::Null:
+        return "Null";
+    case QCborSimpleType::Undefined:
+        return "Undefined";
+    }
+    return nullptr;
+}
+
+#if !defined(QT_NO_DEBUG_STREAM)
+QDebug operator<<(QDebug dbg, QCborSimpleType st)
+{
+    QDebugStateSaver saver(dbg);
+    const char *id = qt_cbor_simpletype_id(st);
+    if (id)
+        return dbg.nospace() << "QCborSimpleType::" << id;
+
+    return dbg.nospace() << "QCborSimpleType(" << uint(st) << ')';
+}
+#endif
+
 /*!
    \enum QCborTag
    \relates <QtCborCommon>
@@ -194,6 +205,79 @@ Q_STATIC_ASSERT(int(QCborStreamReader::Invalid) == CborInvalidType);
        QCborStreamReader::isTag(), QCborStreamReader::toTag(),
        QCborValue::isTag(), QCborValue::tag()
  */
+
+Q_CORE_EXPORT const char *qt_cbor_tag_id(QCborTag tag)
+{
+    // Casting to QCborKnownTags's underlying type will make the comparison
+    // below fail if the tag value is out of range.
+    auto n = std::underlying_type<QCborKnownTags>::type(tag);
+    if (QCborTag(n) == tag) {
+        switch (QCborKnownTags(n)) {
+        case QCborKnownTags::DateTimeString:
+            return "DateTimeString";
+        case QCborKnownTags::UnixTime_t:
+            return "UnixTime_t";
+        case QCborKnownTags::PositiveBignum:
+            return "PositiveBignum";
+        case QCborKnownTags::NegativeBignum:
+            return "NegativeBignum";
+        case QCborKnownTags::Decimal:
+            return "Decimal";
+        case QCborKnownTags::Bigfloat:
+            return "Bigfloat";
+        case QCborKnownTags::COSE_Encrypt0:
+            return "COSE_Encrypt0";
+        case QCborKnownTags::COSE_Mac0:
+            return "COSE_Mac0";
+        case QCborKnownTags::COSE_Sign1:
+            return "COSE_Sign1";
+        case QCborKnownTags::ExpectedBase64url:
+            return "ExpectedBase64url";
+        case QCborKnownTags::ExpectedBase64:
+            return "ExpectedBase64";
+        case QCborKnownTags::ExpectedBase16:
+            return "ExpectedBase16";
+        case QCborKnownTags::EncodedCbor:
+            return "EncodedCbor";
+        case QCborKnownTags::Url:
+            return "Url";
+        case QCborKnownTags::Base64url:
+            return "Base64url";
+        case QCborKnownTags::Base64:
+            return "Base64";
+        case QCborKnownTags::RegularExpression:
+            return "RegularExpression";
+        case QCborKnownTags::MimeMessage:
+            return "MimeMessage";
+        case QCborKnownTags::Uuid:
+            return "Uuid";
+        case QCborKnownTags::COSE_Encrypt:
+            return "COSE_Encrypt";
+        case QCborKnownTags::COSE_Mac:
+            return "COSE_Mac";
+        case QCborKnownTags::COSE_Sign:
+            return "COSE_Sign";
+        case QCborKnownTags::Signature:
+            return "Signature";
+        }
+    }
+    return nullptr;
+}
+
+#if !defined(QT_NO_DEBUG_STREAM)
+QDebug operator<<(QDebug dbg, QCborTag tag)
+{
+    QDebugStateSaver saver(dbg);
+    const char *id = qt_cbor_tag_id(tag);
+    dbg.nospace() << "QCborTag(";
+    if (id)
+        dbg.nospace() << "QCborKnownTags::" << id;
+    else
+        dbg.nospace() << quint64(tag);
+
+    return dbg << ')';
+}
+#endif
 
 /*!
    \enum QCborKnownTags
@@ -272,6 +356,18 @@ Q_STATIC_ASSERT(int(QCborStreamReader::Invalid) == CborInvalidType);
        QCborStreamReader::isTag(), QCborStreamReader::toTag(),
        QCborValue::isTag(), QCborValue::tag()
  */
+
+#if !defined(QT_NO_DEBUG_STREAM)
+QDebug operator<<(QDebug dbg, QCborKnownTags tag)
+{
+    QDebugStateSaver saver(dbg);
+    const char *id = qt_cbor_tag_id(QCborTag(int(tag)));
+    if (id)
+        return dbg.nospace() << "QCborKnownTags::" << id;
+
+    return dbg.nospace() << "QCborKnownTags(" << int(tag) << ')';
+}
+#endif
 
 /*!
    \class QCborError
@@ -1924,7 +2020,7 @@ public:
         }
     }
 
-    void handleError(CborError err) Q_DECL_NOTHROW
+    void handleError(CborError err) noexcept
     {
         Q_ASSERT(err);
 
@@ -2298,7 +2394,7 @@ QCborStreamReader::Type QCborStreamReader::parentContainerType() const
 
    \sa parentContainerType(), containerDepth(), leaveContainer()
  */
-bool QCborStreamReader::hasNext() const Q_DECL_NOTHROW
+bool QCborStreamReader::hasNext() const noexcept
 {
     return cbor_value_is_valid(&d->currentElement) &&
             !cbor_value_at_end(&d->currentElement);
@@ -2374,7 +2470,7 @@ bool QCborStreamReader::next(int maxRecursion)
 
    \sa length(), QCborStreamWriter::startArray(), QCborStreamWriter::startMap()
  */
-bool QCborStreamReader::isLengthKnown() const Q_DECL_NOTHROW
+bool QCborStreamReader::isLengthKnown() const noexcept
 {
     return cbor_value_is_length_known(&d->currentElement);
 }

@@ -215,9 +215,10 @@ public:
 class QThreadPrivate : public QObjectPrivate
 {
 public:
-    QThreadPrivate(QThreadData *d = 0) : data(d ? d : new QThreadData) {}
-    ~QThreadPrivate() { delete data; }
+    QThreadPrivate(QThreadData *d = 0);
+    ~QThreadPrivate();
 
+    mutable QMutex mutex;
     QThreadData *data;
 
     static void setCurrentThread(QThread*) {}
@@ -247,7 +248,15 @@ public:
     void ref();
     void deref();
     inline bool hasEventDispatcher() const
-    { return eventDispatcher.load() != 0; }
+    { return eventDispatcher.load() != nullptr; }
+    QAbstractEventDispatcher *createEventDispatcher();
+    QAbstractEventDispatcher *ensureEventDispatcher()
+    {
+        QAbstractEventDispatcher *ed = eventDispatcher.load();
+        if (Q_LIKELY(ed))
+            return ed;
+        return createEventDispatcher();
+    }
 
     bool canWaitLocked()
     {
@@ -318,7 +327,9 @@ public:
     void init();
 
 private:
+#ifndef QT_NO_THREAD
     void run() override;
+#endif
 };
 
 QT_END_NAMESPACE

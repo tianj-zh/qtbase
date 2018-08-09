@@ -230,6 +230,8 @@ QtModuleProject {
                 "qsurface.h",
                 "qsurfaceformat.cpp",
                 "qsurfaceformat.h",
+                "qtestsupport_gui.cpp",
+                "qtestsupport_gui.h",
                 "qtguiglobal.h",
                 "qtguiglobal_p.h",
                 "qtouchdevice.cpp",
@@ -626,8 +628,12 @@ QtModuleProject {
                 "qgridlayoutengine.cpp",
                 "qgridlayoutengine_p.h",
                 "qhexstring_p.h",
+                "qktxhandler.cpp",
+                "qktxhandler_p.h",
                 "qlayoutpolicy.cpp",
                 "qlayoutpolicy_p.h",
+                "qpkmhandler.cpp",
+                "qpkmhandler_p.h",
                 "qshaderformat.cpp",
                 "qshaderformat_p.h",
                 "qshadergenerator.cpp",
@@ -644,6 +650,11 @@ QtModuleProject {
                 "qshadernodeport_p.h",
                 "qshadernodesloader.cpp",
                 "qshadernodesloader_p.h",
+                "qtexturefiledata.cpp",
+                "qtexturefiledata_p.h",
+                "qtexturefilehandler_p.h",
+                "qtexturefilereader.cpp",
+                "qtexturefilereader_p.h",
                 "qvalidator.cpp",
                 "qvalidator.h",
             ]
@@ -728,6 +739,8 @@ QtModuleProject {
                 "qopengltextureglyphcache_p.h",
                 "qopengltexturehelper.cpp",
                 "qopengltexturehelper_p.h",
+                "qopengltextureuploader.cpp",
+                "qopengltextureuploader_p.h",
                 "qopenglversionfunctions.cpp",
                 "qopenglversionfunctions.h",
                 "qopenglversionfunctionsfactory.cpp",
@@ -909,8 +922,4 @@ CONFIG += simd optimize_full
 !uikit:!win32:!contains(QT_ARCH, "arm64"): DEFINES += ENABLE_PIXMAN_DRAWHELPERS
 
 QMAKE_LIBS += $$QMAKE_LIBS_GUI
-
-
-TRACEPOINT_PROVIDER = $$PWD/qtgui.tracepoints
-CONFIG += qt_tracepoints
 */

@@ -56,6 +56,7 @@
 #include "qxcbglintegrationfactory.h"
 #include "qxcbglintegration.h"
 #include "qxcbcursor.h"
+#include "qxcbbackingstore.h"
 
 #include <QSocketNotifier>
 #include <QAbstractEventDispatcher>
@@ -73,10 +74,12 @@
 #include <xcb/xinerama.h>
 
 #if QT_CONFIG(xcb_xlib)
+#define register        /* C++17 deprecated register */
 #include <X11/Xlib.h>
 #include <X11/Xlib-xcb.h>
 #include <X11/Xlibint.h>
 #include <X11/Xutil.h>
+#undef register
 #endif
 
 #if QT_CONFIG(xcb_xinput)
@@ -116,6 +119,7 @@ Q_LOGGING_CATEGORY(lcQpaEvents, "qt.qpa.events")
 Q_LOGGING_CATEGORY(lcQpaXcb, "qt.qpa.xcb") // for general (uncategorized) XCB logging
 Q_LOGGING_CATEGORY(lcQpaPeeker, "qt.qpa.peeker")
 Q_LOGGING_CATEGORY(lcQpaKeyboard, "qt.qpa.xkeyboard")
+Q_LOGGING_CATEGORY(lcQpaXDnd, "qt.qpa.xdnd")
 
 // this event type was added in libxcb 1.10,
 // but we support also older version
@@ -587,9 +591,13 @@ QXcbConnection::QXcbConnection(QXcbNativeInterface *nativeInterface, bool canGra
 
     m_setup = xcb_get_setup(xcb_connection());
 
+    m_xdgCurrentDesktop = qgetenv("XDG_CURRENT_DESKTOP").toLower();
+
     initializeAllAtoms();
 
-    initializeShm();
+    initializeXSync();
+    if (!qEnvironmentVariableIsSet("QT_XCB_NO_MITSHM"))
+        initializeShm();
     if (!qEnvironmentVariableIsSet("QT_XCB_NO_XRANDR"))
         initializeXRandr();
     if (!has_randr_extension)
@@ -977,7 +985,7 @@ void QXcbConnection::printXcbError(const char *message, xcb_generic_error_t *err
     uint clamped_error_code = qMin<uint>(error->error_code, (sizeof(xcb_errors) / sizeof(xcb_errors[0])) - 1);
     uint clamped_major_code = qMin<uint>(error->major_code, (sizeof(xcb_protocol_request_codes) / sizeof(xcb_protocol_request_codes[0])) - 1);
 
-    qWarning("%s: %d (%s), sequence: %d, resource id: %d, major code: %d (%s), minor code: %d",
+    qCWarning(lcQpaXcb, "%s: %d (%s), sequence: %d, resource id: %d, major code: %d (%s), minor code: %d",
              message,
              int(error->error_code), xcb_errors[clamped_error_code],
              int(error->sequence), int(error->resource_id),
@@ -1209,10 +1217,9 @@ void QXcbConnection::handleXcbEvent(xcb_generic_event_t *event)
             handled = true;
         } else if (has_randr_extension && response_type == xrandr_first_event + XCB_RANDR_SCREEN_CHANGE_NOTIFY) {
             xcb_randr_screen_change_notify_event_t *change_event = reinterpret_cast<xcb_randr_screen_change_notify_event_t *>(event);
-            for (QXcbScreen *s : qAsConst(m_screens)) {
-                if (s->root() == change_event->root )
-                    s->handleScreenChange(change_event);
-            }
+            if (auto *virtualDesktop = virtualDesktopForRootWindow(change_event->root))
+                virtualDesktop->handleScreenChange(change_event);
+
             handled = true;
 #if QT_CONFIG(xkb)
         } else if (response_type == xkb_first_event) { // https://bugs.freedesktop.org/show_bug.cgi?id=51295
@@ -1551,6 +1558,9 @@ xcb_window_t QXcbConnection::getQtSelectionOwner()
                           xcbScreen->root_visual,             // visual
                           0,                                  // value mask
                           0);                                 // value list
+
+        QXcbWindow::setWindowTitle(connection(), m_qtSelectionOwner,
+                               QStringLiteral("Qt Selection Window"));
     }
     return m_qtSelectionOwner;
 }
@@ -1575,17 +1585,11 @@ xcb_window_t QXcbConnection::clientLeader()
                           XCB_WINDOW_CLASS_INPUT_OUTPUT,
                           screen->screen()->root_visual,
                           0, 0);
-#ifndef QT_NO_DEBUG
-        QByteArray ba("Qt client leader window");
-        xcb_change_property(xcb_connection(),
-                            XCB_PROP_MODE_REPLACE,
-                            m_clientLeader,
-                            atom(QXcbAtom::_NET_WM_NAME),
-                            atom(QXcbAtom::UTF8_STRING),
-                            8,
-                            ba.length(),
-                            ba.constData());
-#endif
+
+
+        QXcbWindow::setWindowTitle(connection(), m_clientLeader,
+                                   QStringLiteral("Qt Client Leader Window"));
+
         xcb_change_property(xcb_connection(),
                             XCB_PROP_MODE_REPLACE,
                             m_clientLeader,
@@ -1662,7 +1666,7 @@ bool QXcbConnection::compressEvent(xcb_generic_event_t *event, int currentIndex,
         if (!hasXInput2())
             return false;
 
-        // compress XI_Motion, but not from tablet devices
+        // compress XI_Motion
         if (isXIType(event, m_xiOpCode, XCB_INPUT_MOTION)) {
 #if QT_CONFIG(tabletevent)
             auto *xdev = reinterpret_cast<xcb_input_motion_event_t *>(event);
@@ -1820,6 +1824,7 @@ static const char * xcb_atomnames = {
     "WM_CLIENT_LEADER\0"
     "WM_WINDOW_ROLE\0"
     "SM_CLIENT_ID\0"
+    "WM_CLIENT_MACHINE\0"
 
     // Clipboard
     "CLIPBOARD\0"
@@ -2075,20 +2080,34 @@ void QXcbConnection::initializeShm()
 {
     const xcb_query_extension_reply_t *reply = xcb_get_extension_data(m_connection, &xcb_shm_id);
     if (!reply || !reply->present) {
-        qWarning("QXcbConnection: MIT-SHM extension is not present on the X server.");
+        qCDebug(lcQpaXcb, "MIT-SHM extension is not present on the X server");
         return;
     }
-
     has_shm = true;
 
     auto shm_query = Q_XCB_REPLY(xcb_shm_query_version, m_connection);
-    if (!shm_query) {
-        qWarning("QXcbConnection: Failed to request MIT-SHM version");
-        return;
+    if (shm_query) {
+        has_shm_fd = (shm_query->major_version == 1 && shm_query->minor_version >= 2) ||
+                      shm_query->major_version > 1;
+    } else {
+        qCWarning(lcQpaXcb, "QXcbConnection: Failed to request MIT-SHM version");
     }
 
-    has_shm_fd = (shm_query->major_version == 1 && shm_query->minor_version >= 2) ||
-                  shm_query->major_version > 1;
+    qCDebug(lcQpaXcb) << "Has MIT-SHM     :" << has_shm;
+    qCDebug(lcQpaXcb) << "Has MIT-SHM FD  :" << has_shm_fd;
+
+    // Temporary disable warnings (unless running in debug mode).
+    auto logging = const_cast<QLoggingCategory*>(&lcQpaXcb());
+    bool wasEnabled = logging->isEnabled(QtMsgType::QtWarningMsg);
+    if (!logging->isEnabled(QtMsgType::QtDebugMsg))
+        logging->setEnabled(QtMsgType::QtWarningMsg, false);
+    if (!QXcbBackingStore::createSystemVShmSegment(this)) {
+        qCDebug(lcQpaXcb, "failed to create System V shared memory segment (remote "
+                          "X11 connection?), disabling SHM");
+        has_shm = has_shm_fd = false;
+    }
+    if (wasEnabled)
+        logging->setEnabled(QtMsgType::QtWarningMsg, true);
 }
 
 void QXcbConnection::initializeXFixes()
@@ -2250,6 +2269,15 @@ void QXcbConnection::initializeXKB()
 #endif
 }
 
+void QXcbConnection::initializeXSync()
+{
+    const xcb_query_extension_reply_t *reply = xcb_get_extension_data(xcb_connection(), &xcb_sync_id);
+    if (!reply || !reply->present)
+        return;
+
+    has_sync_extension = true;
+}
+
 QXcbSystemTrayTracker *QXcbConnection::systemTrayTracker() const
 {
     if (!m_systemTrayTracker) {
@@ -2260,22 +2288,6 @@ QXcbSystemTrayTracker *QXcbConnection::systemTrayTracker() const
         }
     }
     return m_systemTrayTracker;
-}
-
-bool QXcbConnection::xEmbedSystemTrayAvailable()
-{
-    if (!QGuiApplicationPrivate::platformIntegration())
-        return false;
-    QXcbConnection *connection = static_cast<QXcbIntegration *>(QGuiApplicationPrivate::platformIntegration())->defaultConnection();
-    return connection->systemTrayTracker();
-}
-
-bool QXcbConnection::xEmbedSystemTrayVisualHasAlphaChannel()
-{
-    if (!QGuiApplicationPrivate::platformIntegration())
-        return false;
-    QXcbConnection *connection = static_cast<QXcbIntegration *>(QGuiApplicationPrivate::platformIntegration())->defaultConnection();
-    return connection->systemTrayTracker() && connection->systemTrayTracker()->visualHasAlphaChannel();
 }
 
 Qt::MouseButtons QXcbConnection::queryMouseButtons() const

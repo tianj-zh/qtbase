@@ -49,6 +49,7 @@
 #include "qcoreapplication.h"
 #include "qcoreapplication_p.h"
 #include "qdatastream.h"
+#include "qendian.h"
 #include "qfile.h"
 #include "qmap.h"
 #include "qalgorithms.h"
@@ -532,7 +533,7 @@ bool QTranslatorPrivate::do_load(const QString &realname, const QString &directo
         // memory, so no need to use QFile to copy it again.
         Q_ASSERT(!d->resource);
         d->resource = new QResource(realname);
-        if (resource->isValid() && !resource->isCompressed() && resource->size() > MagicLength
+        if (resource->isValid() && !resource->isCompressed() && resource->size() >= MagicLength
                 && !memcmp(resource->data(), magic, MagicLength)) {
             d->unmapLength = resource->size();
             d->unmapPointer = reinterpret_cast<char *>(const_cast<uchar *>(resource->data()));
@@ -552,7 +553,7 @@ bool QTranslatorPrivate::do_load(const QString &realname, const QString &directo
             return false;
 
         qint64 fileSize = file.size();
-        if (fileSize <= MagicLength || quint32(-1) <= fileSize)
+        if (fileSize < MagicLength || quint32(-1) <= fileSize)
             return false;
 
         {
@@ -857,8 +858,6 @@ bool QTranslatorPrivate::do_load(const uchar *data, int len, const QString &dire
         data += blockLen;
     }
 
-    if (dependencies.isEmpty() && (!offsetArray || !messageArray))
-        ok = false;
     if (ok && !isValidNumerusRules(numerusRulesArray, numerusRulesLength))
         ok = false;
     if (ok) {
@@ -957,8 +956,8 @@ end:
         return QString();
     QString str = QString((const QChar *)tn, tn_length/2);
     if (QSysInfo::ByteOrder == QSysInfo::LittleEndian) {
-        for (int i = 0; i < str.length(); ++i)
-            str[i] = QChar((str.at(i).unicode() >> 8) + ((str.at(i).unicode() << 8) & 0xff00));
+        QChar *data = str.data();
+        qbswap<sizeof(QChar)>(data, str.length(), data);
     }
     return str;
 }
@@ -1137,8 +1136,8 @@ QString QTranslator::translate(const char *context, const char *sourceText, cons
 bool QTranslator::isEmpty() const
 {
     Q_D(const QTranslator);
-    return !d->unmapPointer && !d->unmapLength && !d->messageArray &&
-           !d->offsetArray && !d->contextArray && d->subTranslators.isEmpty();
+    return !d->messageArray && !d->offsetArray && !d->contextArray
+            && d->subTranslators.isEmpty();
 }
 
 QT_END_NAMESPACE

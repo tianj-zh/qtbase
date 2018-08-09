@@ -45,6 +45,16 @@
 
 #include <xcb/shm.h>
 #include <xcb/xcb_image.h>
+#if QT_CONFIG(xcb_render)
+#include <xcb/render.h>
+// 'template' is used as a function argument name in xcb_renderutil.h
+#define template template_param
+// extern "C" is missing too
+extern "C" {
+#include <xcb/xcb_renderutil.h>
+}
+#undef template
+#endif
 
 #include <sys/ipc.h>
 #include <sys/shm.h>
@@ -75,7 +85,7 @@ class QXcbBackingStore;
 class QXcbBackingStoreImage : public QXcbObject
 {
 public:
-    QXcbBackingStoreImage(QXcbBackingStore *backingStore, const QSize &size);
+    QXcbBackingStoreImage(QXcbScreen *screen, const QSize &size, uint depth, QImage::Format format);
     ~QXcbBackingStoreImage() { destroy(true); }
 
     void resize(const QSize &size);
@@ -95,6 +105,9 @@ public:
     void put(xcb_drawable_t dst, const QRegion &region, const QPoint &offset);
     void preparePaint(const QRegion &region);
 
+    static bool createSystemVShmSegment(QXcbConnection *c, size_t segmentSize = 1,
+                                        xcb_shm_segment_info_t *shm_info = nullptr);
+
 private:
     void createShmSegment(size_t segmentSize);
     void destroyShmSegment(size_t segmentSize);
@@ -107,8 +120,9 @@ private:
     void flushPixmap(const QRegion &region, bool fullRegion = false);
     void setClip(const QRegion &region);
 
+    xcb_window_t m_screen_root;
+
     xcb_shm_segment_info_t m_shm_info;
-    QXcbBackingStore *m_backingStore = nullptr;
     size_t m_segmentSize = 0;
 
     xcb_image_t *m_xcb_image = nullptr;
@@ -176,17 +190,15 @@ static inline size_t imageDataSize(const xcb_image_t *image)
     return static_cast<size_t>(image->stride) * image->height;
 }
 
-QXcbBackingStoreImage::QXcbBackingStoreImage(QXcbBackingStore *backingStore, const QSize &size)
-    : QXcbObject(backingStore->connection())
-    , m_backingStore(backingStore)
+QXcbBackingStoreImage::QXcbBackingStoreImage(QXcbScreen *screen, const QSize &size, uint depth, QImage::Format format)
+    : QXcbObject(screen->connection())
+    , m_screen_root(screen->screen()->root)
 {
-    QXcbWindow *window = static_cast<QXcbWindow *>(backingStore->window()->handle());
-    const xcb_format_t *fmt = connection()->formatForDepth(window->depth());
+    const xcb_format_t *fmt = connection()->formatForDepth(depth);
     Q_ASSERT(fmt);
 
     memset(&m_shm_info, 0, sizeof m_shm_info);
 
-    QImage::Format format = window->imageFormat();
     m_hasAlpha = QImage::toPixelFormat(format).alphaUsage() == QPixelFormat::UsesAlpha;
     if (!m_hasAlpha)
         create(size, fmt, qt_maybeAlphaVersionWithSameDepth(format));
@@ -235,11 +247,10 @@ void QXcbBackingStoreImage::create(const QSize &size, const xcb_format_t *fmt, Q
     m_graphics_buffer = new QXcbGraphicsBuffer(&m_qimage);
 
     m_xcb_pixmap = xcb_generate_id(xcb_connection());
-    auto xcbScreen = static_cast<QXcbScreen *>(m_backingStore->window()->screen()->handle());
     xcb_create_pixmap(xcb_connection(),
                       m_xcb_image->depth,
                       m_xcb_pixmap,
-                      xcbScreen->root(),
+                      m_screen_root,
                       m_xcb_image->width, m_xcb_image->height);
 }
 
@@ -325,15 +336,16 @@ void QXcbBackingStoreImage::createShmSegment(size_t segmentSize)
 #ifdef XCB_USE_SHM_FD
     if (connection()->hasShmFd()) {
         if (Q_UNLIKELY(segmentSize > std::numeric_limits<uint32_t>::max())) {
-            qWarning("QXcbShmImage: xcb_shm_create_segment() can't be called for size %zu, maximum allowed size is %u",
-                     segmentSize, std::numeric_limits<uint32_t>::max());
+            qCWarning(lcQpaXcb, "xcb_shm_create_segment() can't be called for size %zu, maximum"
+                      "allowed size is %u", segmentSize, std::numeric_limits<uint32_t>::max());
             return;
         }
+
         const auto seg = xcb_generate_id(xcb_connection());
         auto reply = Q_XCB_REPLY(xcb_shm_create_segment,
                                  xcb_connection(), seg, segmentSize, false);
         if (!reply) {
-            qWarning("QXcbShmImage: xcb_shm_create_segment() failed for size %zu", segmentSize);
+            qCWarning(lcQpaXcb, "xcb_shm_create_segment() failed for size %zu", segmentSize);
             return;
         }
 
@@ -342,13 +354,13 @@ void QXcbBackingStoreImage::createShmSegment(size_t segmentSize)
             for (int i = 0; i < reply->nfd; i++)
                 close(fds[i]);
 
-            qWarning("QXcbShmImage: failed to get file descriptor for shm segment of size %zu", segmentSize);
+            qCWarning(lcQpaXcb, "failed to get file descriptor for shm segment of size %zu", segmentSize);
             return;
         }
 
         void *addr = mmap(nullptr, segmentSize, PROT_READ|PROT_WRITE, MAP_SHARED, fds[0], 0);
         if (addr == MAP_FAILED) {
-            qWarning("QXcbShmImage: failed to mmap segment from X server (%d: %s) for size %zu",
+            qCWarning(lcQpaXcb, "failed to mmap segment from X server (%d: %s) for size %zu",
                      errno, strerror(errno), segmentSize);
             close(fds[0]);
             xcb_shm_detach(xcb_connection(), seg);
@@ -358,47 +370,54 @@ void QXcbBackingStoreImage::createShmSegment(size_t segmentSize)
         close(fds[0]);
         m_shm_info.shmseg = seg;
         m_shm_info.shmaddr = static_cast<quint8 *>(addr);
-
         m_segmentSize = segmentSize;
     } else
 #endif
     {
-        const int id = shmget(IPC_PRIVATE, segmentSize, IPC_CREAT | 0600);
-        if (id == -1) {
-            qWarning("QXcbShmImage: shmget() failed (%d: %s) for size %zu",
-                     errno, strerror(errno), segmentSize);
-            return;
-        }
-
-        void *addr = shmat(id, 0, 0);
-        if (addr == (void *)-1) {
-            qWarning("QXcbShmImage: shmat() failed (%d: %s) for id %d",
-                     errno, strerror(errno), id);
-            return;
-        }
-
-        if (shmctl(id, IPC_RMID, 0) == -1)
-            qWarning("QXcbBackingStore: Error while marking the shared memory segment to be destroyed");
-
-        const auto seg = xcb_generate_id(xcb_connection());
-        auto cookie = xcb_shm_attach_checked(xcb_connection(), seg, id, false);
-        auto *error = xcb_request_check(xcb_connection(), cookie);
-        if (error) {
-            connection()->printXcbError("QXcbShmImage: xcb_shm_attach() failed with error", error);
-            free(error);
-            if (shmdt(addr) == -1) {
-                qWarning("QXcbShmImage: shmdt() failed (%d: %s) for %p",
-                         errno, strerror(errno), addr);
-            }
-            return;
-        }
-
-        m_shm_info.shmseg = seg;
-        m_shm_info.shmid = id; // unused
-        m_shm_info.shmaddr = static_cast<quint8 *>(addr);
-
-        m_segmentSize = segmentSize;
+        if (createSystemVShmSegment(connection(), segmentSize, &m_shm_info))
+            m_segmentSize = segmentSize;
     }
+}
+
+bool QXcbBackingStoreImage::createSystemVShmSegment(QXcbConnection *c, size_t segmentSize,
+                                                    xcb_shm_segment_info_t *shmInfo)
+{
+    const int id = shmget(IPC_PRIVATE, segmentSize, IPC_CREAT | 0600);
+    if (id == -1) {
+        qCWarning(lcQpaXcb, "shmget() failed (%d: %s) for size %zu", errno, strerror(errno), segmentSize);
+        return false;
+    }
+
+    void *addr = shmat(id, 0, 0);
+    if (addr == (void *)-1) {
+        qCWarning(lcQpaXcb, "shmat() failed (%d: %s) for id %d", errno, strerror(errno), id);
+        return false;
+    }
+
+    if (shmctl(id, IPC_RMID, 0) == -1)
+        qCWarning(lcQpaXcb, "Error while marking the shared memory segment to be destroyed");
+
+    const auto seg = xcb_generate_id(c->xcb_connection());
+    auto cookie = xcb_shm_attach_checked(c->xcb_connection(), seg, id, false);
+    auto *error = xcb_request_check(c->xcb_connection(), cookie);
+    if (error) {
+        c->printXcbError("xcb_shm_attach() failed with error", error);
+        free(error);
+        if (shmdt(addr) == -1)
+            qCWarning(lcQpaXcb, "shmdt() failed (%d: %s) for %p", errno, strerror(errno), addr);
+        return false;
+    } else if (!shmInfo) { // this was a test run, free the allocated test segment
+        xcb_shm_detach(c->xcb_connection(), seg);
+        auto shmaddr = static_cast<quint8 *>(addr);
+        if (shmdt(shmaddr) == -1)
+            qCWarning(lcQpaXcb, "shmdt() failed (%d: %s) for %p", errno, strerror(errno), shmaddr);
+    }
+    if (shmInfo) {
+        shmInfo->shmseg = seg;
+        shmInfo->shmid = id; // unused
+        shmInfo->shmaddr = static_cast<quint8 *>(addr);
+    }
+    return true;
 }
 
 void QXcbBackingStoreImage::destroyShmSegment(size_t segmentSize)
@@ -409,21 +428,21 @@ void QXcbBackingStoreImage::destroyShmSegment(size_t segmentSize)
     auto cookie = xcb_shm_detach_checked(xcb_connection(), m_shm_info.shmseg);
     xcb_generic_error_t *error = xcb_request_check(xcb_connection(), cookie);
     if (error)
-        connection()->printXcbError("QXcbShmImage: xcb_shm_detach() failed with error", error);
+        connection()->printXcbError("xcb_shm_detach() failed with error", error);
     m_shm_info.shmseg = 0;
 
 #ifdef XCB_USE_SHM_FD
     if (connection()->hasShmFd()) {
         if (munmap(m_shm_info.shmaddr, segmentSize) == -1) {
-            qWarning("QXcbShmImage: munmap() failed (%d: %s) for %p with size %zu",
-                     errno, strerror(errno), m_shm_info.shmaddr, segmentSize);
+            qCWarning(lcQpaXcb, "munmap() failed (%d: %s) for %p with size %zu",
+                      errno, strerror(errno), m_shm_info.shmaddr, segmentSize);
         }
     } else
 #endif
     {
         if (shmdt(m_shm_info.shmaddr) == -1) {
-            qWarning("QXcbShmImage: shmdt() failed (%d: %s) for %p",
-                     errno, strerror(errno), m_shm_info.shmaddr);
+            qCWarning(lcQpaXcb, "shmdt() failed (%d: %s) for %p",
+                      errno, strerror(errno), m_shm_info.shmaddr);
         }
         m_shm_info.shmid = 0; // unused
     }
@@ -718,6 +737,12 @@ void QXcbBackingStoreImage::preparePaint(const QRegion &region)
     m_pendingFlush |= region;
 }
 
+bool QXcbBackingStore::createSystemVShmSegment(QXcbConnection *c, size_t segmentSize, void *shmInfo)
+{
+    auto info = reinterpret_cast<xcb_shm_segment_info_t *>(shmInfo);
+    return QXcbBackingStoreImage::createSystemVShmSegment(c, segmentSize, info);
+}
+
 QXcbBackingStore::QXcbBackingStore(QWindow *window)
     : QPlatformBackingStore(window)
 {
@@ -757,7 +782,7 @@ void QXcbBackingStore::beginPaint(const QRegion &region)
 void QXcbBackingStore::endPaint()
 {
     if (Q_UNLIKELY(m_paintRegions.isEmpty())) {
-        qWarning("%s: paint regions empty!", Q_FUNC_INFO);
+        qCWarning(lcQpaXcb, "%s: paint regions empty!", Q_FUNC_INFO);
         return;
     }
 
@@ -811,16 +836,21 @@ void QXcbBackingStore::flush(QWindow *window, const QRegion &region, const QPoin
 
     QXcbWindow *platformWindow = static_cast<QXcbWindow *>(window->handle());
     if (!platformWindow) {
-        qWarning("QXcbBackingStore::flush: QWindow has no platform window (QTBUG-32681)");
+        qCWarning(lcQpaXcb, "%s QWindow has no platform window, see QTBUG-32681", Q_FUNC_INFO);
         return;
     }
 
-    m_image->put(platformWindow->xcb_window(), clipped, offset);
+    render(platformWindow->xcb_window(), clipped, offset);
 
     if (platformWindow->needsSync())
         platformWindow->updateSyncRequestCounter();
     else
         xcb_flush(xcb_connection());
+}
+
+void QXcbBackingStore::render(xcb_window_t window, const QRegion &region, const QPoint &offset)
+{
+    m_image->put(window, region, offset);
 }
 
 #ifndef QT_NO_OPENGL
@@ -856,10 +886,15 @@ void QXcbBackingStore::resize(const QSize &size, const QRegion &)
     }
     QXcbWindow* win = static_cast<QXcbWindow *>(pw);
 
+    recreateImage(win, size);
+}
+
+void QXcbBackingStore::recreateImage(QXcbWindow *win, const QSize &size)
+{
     if (m_image)
         m_image->resize(size);
     else
-        m_image = new QXcbBackingStoreImage(this, size);
+        m_image = new QXcbBackingStoreImage(win->xcbScreen(), size, win->depth(), win->imageFormat());
 
     // Slow path for bgr888 VNC: Create an additional image, paint into that and
     // swap R and B while copying to m_image after each paint.
@@ -875,5 +910,168 @@ bool QXcbBackingStore::scroll(const QRegion &area, int dx, int dy)
 
     return false;
 }
+
+QXcbSystemTrayBackingStore::QXcbSystemTrayBackingStore(QWindow *window)
+    : QXcbBackingStore(window)
+{
+    // We need three different behaviors depending on whether the X11 visual
+    // for the system tray supports an alpha channel, i.e. is 32 bits, and
+    // whether XRender can be used:
+    // 1) if the visual has an alpha channel, then render the window's buffer
+    //    directly to the X11 window as usual
+    // 2) else if XRender can be used, then render the window's buffer to Pixmap,
+    //    then render Pixmap's contents to the cleared X11 window with
+    //    xcb_render_composite()
+    // 3) else grab the X11 window's content and paint it first each time as a
+    //    background before rendering the window's buffer to the X11 window
+
+    auto *platformWindow = static_cast<QXcbWindow *>(window->handle());
+    quint8 depth = connection()->primaryScreen()->depthOfVisual(platformWindow->visualId());
+
+    if (depth != 32) {
+        platformWindow->setParentRelativeBackPixmap();
+#if QT_CONFIG(xcb_render)
+        initXRenderMode();
+#endif
+        m_useGrabbedBackgound = !m_usingXRenderMode;
+    }
+}
+
+QXcbSystemTrayBackingStore::~QXcbSystemTrayBackingStore()
+{
+#if QT_CONFIG(xcb_render)
+    if (m_xrenderPicture) {
+        xcb_render_free_picture(xcb_connection(), m_xrenderPicture);
+        m_xrenderPicture = XCB_NONE;
+    }
+    if (m_xrenderPixmap) {
+        xcb_free_pixmap(xcb_connection(), m_xrenderPixmap);
+        m_xrenderPixmap = XCB_NONE;
+    }
+    if (m_windowPicture) {
+        xcb_render_free_picture(xcb_connection(), m_windowPicture);
+        m_windowPicture = XCB_NONE;
+    }
+#endif // QT_CONFIG(xcb_render)
+}
+
+void QXcbSystemTrayBackingStore::beginPaint(const QRegion &region)
+{
+    QXcbBackingStore::beginPaint(region);
+
+    if (m_useGrabbedBackgound) {
+        QPainter p(paintDevice());
+        p.setCompositionMode(QPainter::CompositionMode_Source);
+        for (const QRect &rect: region)
+            p.drawPixmap(rect, m_grabbedBackground, rect);
+    }
+}
+
+void QXcbSystemTrayBackingStore::render(xcb_window_t window, const QRegion &region, const QPoint &offset)
+{
+    if (!m_usingXRenderMode) {
+        QXcbBackingStore::render(window, region, offset);
+        return;
+    }
+
+#if QT_CONFIG(xcb_render)
+    m_image->put(m_xrenderPixmap, region, offset);
+    const QRect bounds = region.boundingRect();
+    const QPoint target = bounds.topLeft();
+    const QRect source = bounds.translated(offset);
+    xcb_clear_area(xcb_connection(), false, window,
+                   target.x(), target.y(), source.width(), source.height());
+    xcb_render_composite(xcb_connection(), XCB_RENDER_PICT_OP_OVER,
+                         m_xrenderPicture, 0, m_windowPicture,
+                         target.x(), target.y(), 0, 0, target.x(), target.y(),
+                         source.width(), source.height());
+#endif // QT_CONFIG(xcb_render)
+}
+
+void QXcbSystemTrayBackingStore::recreateImage(QXcbWindow *win, const QSize &size)
+{
+    if (!m_usingXRenderMode) {
+        QXcbBackingStore::recreateImage(win, size);
+
+        if (m_useGrabbedBackgound) {
+            xcb_clear_area(xcb_connection(), false, win->xcb_window(),
+                           0, 0, size.width(), size.height());
+            m_grabbedBackground = win->xcbScreen()->grabWindow(win->winId(), 0, 0,
+                                                               size.width(), size.height());
+        }
+        return;
+    }
+
+#if QT_CONFIG(xcb_render)
+    if (m_xrenderPicture) {
+        xcb_render_free_picture(xcb_connection(), m_xrenderPicture);
+        m_xrenderPicture = XCB_NONE;
+    }
+    if (m_xrenderPixmap) {
+        xcb_free_pixmap(xcb_connection(), m_xrenderPixmap);
+        m_xrenderPixmap = XCB_NONE;
+    }
+
+    QXcbScreen *screen = win->xcbScreen();
+
+    m_xrenderPixmap = xcb_generate_id(xcb_connection());
+    xcb_create_pixmap(xcb_connection(), 32, m_xrenderPixmap, screen->root(), size.width(), size.height());
+
+    m_xrenderPicture = xcb_generate_id(xcb_connection());
+    xcb_render_create_picture(xcb_connection(), m_xrenderPicture, m_xrenderPixmap, m_xrenderPictFormat, 0, 0);
+
+    // XRender expects premultiplied alpha
+    if (m_image)
+        m_image->resize(size);
+    else
+        m_image = new QXcbBackingStoreImage(screen, size, 32, QImage::Format_ARGB32_Premultiplied);
+#endif // QT_CONFIG(xcb_render)
+}
+
+#if QT_CONFIG(xcb_render)
+void QXcbSystemTrayBackingStore::initXRenderMode()
+{
+    if (!connection()->hasXRender())
+        return;
+
+    xcb_connection_t *conn = xcb_connection();
+    auto formatsReply = Q_XCB_REPLY(xcb_render_query_pict_formats, conn);
+
+    if (!formatsReply) {
+        qWarning("QXcbSystemTrayBackingStore: xcb_render_query_pict_formats() failed");
+        return;
+    }
+
+    xcb_render_pictforminfo_t *fmt = xcb_render_util_find_standard_format(formatsReply.get(),
+                                                                          XCB_PICT_STANDARD_ARGB_32);
+    if (!fmt) {
+        qWarning("QXcbSystemTrayBackingStore: Failed to find format PICT_STANDARD_ARGB_32");
+        return;
+    }
+
+    m_xrenderPictFormat = fmt->id;
+
+    auto *platformWindow = static_cast<QXcbWindow *>(window()->handle());
+    xcb_render_pictvisual_t *vfmt = xcb_render_util_find_visual_format(formatsReply.get(), platformWindow->visualId());
+
+    if (!vfmt) {
+        qWarning("QXcbSystemTrayBackingStore: Failed to find format for visual %x", platformWindow->visualId());
+        return;
+    }
+
+    m_windowPicture = xcb_generate_id(conn);
+    xcb_void_cookie_t cookie =
+            xcb_render_create_picture_checked(conn, m_windowPicture, platformWindow->xcb_window(), vfmt->format, 0, 0);
+    xcb_generic_error_t *error = xcb_request_check(conn, cookie);
+    if (error) {
+        qWarning("QXcbSystemTrayBackingStore: Failed to create Picture with format %x for window %x, error code %d",
+                 vfmt->format, platformWindow->xcb_window(), error->error_code);
+        free(error);
+        return;
+    }
+
+    m_usingXRenderMode = true;
+}
+#endif // QT_CONFIG(xcb_render)
 
 QT_END_NAMESPACE

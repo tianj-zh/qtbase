@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -57,6 +58,29 @@
 #include <qtcore_tracepoints_p.h>
 
 QT_BEGIN_NAMESPACE
+
+static inline int metaDataSignatureLength()
+{
+    return sizeof("QTMETADATA  ") - 1;
+}
+
+QJsonDocument qJsonFromRawLibraryMetaData(const char *raw, qsizetype sectionSize)
+{
+    raw += metaDataSignatureLength();
+    sectionSize -= metaDataSignatureLength();
+
+    // the size of the embedded JSON object can be found 8 bytes into the data (see qjson_p.h)
+    uint size = qFromLittleEndian<uint>(raw + 8);
+    // but the maximum size of binary JSON is 128 MB
+    size = qMin(size, 128U * 1024 * 1024);
+    // and it doesn't include the size of the header (8 bytes)
+    size += 8;
+    // finally, it can't be bigger than the file or section size
+    size = qMin(sectionSize, qsizetype(size));
+
+    QByteArray json(raw, size);
+    return QJsonDocument::fromBinaryData(json);
+}
 
 class QFactoryLoaderPrivate : public QObjectPrivate
 {
@@ -133,12 +157,17 @@ void QFactoryLoader::update()
             // versions of the same Qt libraries (due to the plugin's dependencies).
             if (isDebugPlugin != isDebugLibrary)
                 continue;
+#elif defined(Q_PROCESSOR_X86)
+            if (fileName.endsWith(QLatin1String(".avx2")) || fileName.endsWith(QLatin1String(".avx512"))) {
+                // ignore AVX2-optimized file, we'll do a bait-and-switch to it later
+                continue;
+            }
 #endif
             if (qt_debug_component()) {
                 qDebug() << "QFactoryLoader::QFactoryLoader() looking at" << fileName;
             }
 
-            Q_TRACE(qfactoryloader_update, fileName);
+            Q_TRACE(QFactoryLoader_update, fileName);
 
             library = QLibraryPrivate::findOrCreate(QFileInfo(fileName).canonicalFilePath());
             if (!library->isPlugin()) {

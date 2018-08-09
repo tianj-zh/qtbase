@@ -31,6 +31,8 @@ QtModuleProject {
     QtPrivateModule {
     }
 
+    QtModuleTracepoints {}
+
     QtModule {
         Export {
             Depends { name: "cpp" }

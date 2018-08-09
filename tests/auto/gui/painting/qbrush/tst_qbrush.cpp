@@ -331,7 +331,7 @@ void tst_QBrush::gradientPresets()
 {
     QGradient gradient(QGradient::WarmFlame);
     QCOMPARE(gradient.type(), QGradient::LinearGradient);
-    QCOMPARE(gradient.coordinateMode(), QGradient::ObjectBoundingMode);
+    QCOMPARE(gradient.coordinateMode(), QGradient::ObjectMode);
 
     QLinearGradient *lg = static_cast<QLinearGradient *>(&gradient);
     QCOMPARE(lg->start(), QPointF(0, 1));
@@ -460,6 +460,9 @@ void tst_QBrush::textureBrushStream()
 
     QCOMPARE(loadedBrush1.style(), Qt::TexturePattern);
     QCOMPARE(loadedBrush2.style(), Qt::TexturePattern);
+#ifdef Q_OS_ANDROID
+    QEXPECT_FAIL("", "QTBUG-69193", Continue);
+#endif
     QCOMPARE(loadedBrush1.texture(), pixmap_source);
     QCOMPARE(loadedBrush2.textureImage(), image_source);
 }

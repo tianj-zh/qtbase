@@ -2,9 +2,11 @@ import qbs
 
 QtAutotestHelperApp {
     name: "app"
+    targetName: "helper"
     condition: base && !targetsUWP
     destinationDirectory: project.buildDirectory + "/qloggingtest/app"
     consoleApplication: "true"
+    installSuffix: ""
     Depends { name: "Qt.core" }
     cpp.defines: base.concat(["QT_MESSAGELOGCONTEXT"])
     Properties {

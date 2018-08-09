@@ -238,24 +238,6 @@ QT_NAMESPACE_ALIAS_OBJC_CLASS(QVerticalSplitView);
 }
 @end
 
-#if !QT_CONFIG(appstore_compliant)
-
-// This API was requested to Apple in rdar #36197888.
-// We know it's safe to use up to macOS 10.13.3.
-// See drawComplexControl(CC_ComboBox) for its usage.
-
-@interface NSComboBoxCell (QtButtonCell)
-@property (readonly) NSButtonCell *qt_buttonCell;
-@end
-
-@implementation NSComboBoxCell (QtButtonCell)
-- (NSButtonCell *)qt_buttonCell {
-    return self->_buttonCell;
-}
-@end
-
-#endif
-
 QT_BEGIN_NAMESPACE
 
 // The following constants are used for adjusting the size
@@ -1845,6 +1827,8 @@ NSView *QMacStylePrivate::cocoaControl(CocoaControl widget) const
         auto *button = static_cast<NSButton *>(bv);
         button.buttonType = buttonType;
         button.bezelStyle = bezelStyle;
+        if (widget.type == Button_CheckBox)
+            button.allowsMixedState = YES;
     }
 
     return bv;
@@ -1886,20 +1870,46 @@ NSCell *QMacStylePrivate::cocoaCell(CocoaControl widget) const
     return cell;
 }
 
-void QMacStylePrivate::drawNSViewInRect(NSView *view, const QRectF &qtRect, QPainter *p,
+void QMacStylePrivate::drawNSViewInRect(NSView *view, const QRectF &rect, QPainter *p,
                                         __attribute__((noescape)) DrawRectBlock drawRectBlock) const
 {
     QMacCGContext ctx(p);
     setupNSGraphicsContext(ctx, YES);
 
-    const CGRect rect = qtRect.toCGRect();
+    // FIXME: The rect that we get in is relative to the widget that we're drawing
+    // style on behalf of, and doesn't take into account the offset of that widget
+    // to the widget that owns the backingstore, which we are placing the native
+    // view into below. This means most of the views are placed in the upper left
+    // corner of backingStoreNSView, which does not map to where the actual widget
+    // is, and which may cause problems such as triggering a setNeedsDisplay of the
+    // backingStoreNSView for the wrong rect. We work around this by making the view
+    // layer-backed, which prevents triggering display of the backingStoreNSView, but
+    // but there may be other issues lurking here due to the wrong position. QTBUG-68023
+    view.wantsLayer = YES;
+
+    // FIXME: We are also setting the frame of the incoming view a lot at the call
+    // sites of this function, making it unclear who's actually responsible for
+    // maintaining the size and position of the view. In theory the call sites
+    // should ensure the _size_ of the view is correct, and then let this code
+    // take care of _positioning_ the view at the right place inside backingStoreNSView.
+    // For now we pass on the rect as is, to prevent any regressions until this
+    // can be investigated properly.
+    view.frame = rect.toCGRect();
 
     [backingStoreNSView addSubview:view];
-    view.frame = rect;
+
+    // FIXME: Based on the code below, this method isn't drawing an NSView into
+    // a rect, it's drawing _part of the NSView_, defined by the incoming clip
+    // or dirty rect, into the current graphics context. We're doing some manual
+    // translations at the call sites that would indicate that this relationship
+    // is a bit fuzzy.
+    const CGRect dirtyRect = rect.toCGRect();
+
     if (drawRectBlock)
-        drawRectBlock(ctx, rect);
+        drawRectBlock(ctx, dirtyRect);
     else
-        [view drawRect:rect];
+        [view drawRect:dirtyRect];
+
     [view removeFromSuperviewWithoutNeedingDisplay];
 
     restoreNSGraphicsContext(ctx);
@@ -2800,8 +2810,7 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
 {
     Q_D(const QMacStyle);
     QMacCGContext cg(p);
-    QWindow *window = w && w->window() ? w->window()->windowHandle() :
-                     QStyleHelper::styleObjectWindow(opt->styleObject);
+    QWindow *window = w && w->window() ? w->window()->windowHandle() : nullptr;
     d->resolveCurrentNSView(window);
     switch (pe) {
     case PE_IndicatorArrowUp:
@@ -3116,8 +3125,7 @@ void QMacStyle::drawPrimitive(PrimitiveElement pe, const QStyleOption *opt, QPai
                 tf.bezeled = YES;
                 static_cast<NSTextFieldCell *>(tf.cell).bezelStyle = isRounded ? NSTextFieldRoundedBezel : NSTextFieldSquareBezel;
                 tf.frame = opt->rect.toCGRect();
-                d->drawNSViewInRect(tf, opt->rect, p, ^(CGContextRef ctx, const CGRect &rect) {
-                    Q_UNUSED(ctx);
+                d->drawNSViewInRect(tf, opt->rect, p, ^(CGContextRef, const CGRect &rect) {
                     [tf.cell drawWithFrame:rect inView:tf];
                 });
             } else {
@@ -3246,8 +3254,7 @@ void QMacStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPainter
 {
     Q_D(const QMacStyle);
     QMacCGContext cg(p);
-    QWindow *window = w && w->window() ? w->window()->windowHandle() :
-                     QStyleHelper::styleObjectWindow(opt->styleObject);
+    QWindow *window = w && w->window() ? w->window()->windowHandle() : nullptr;
     d->resolveCurrentNSView(window);
     switch (ce) {
     case CE_HeaderSection:
@@ -3448,7 +3455,7 @@ void QMacStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPainter
             pb.enabled = isEnabled;
             [pb highlight:isPressed];
             pb.state = isHighlighted && !isPressed ? NSOnState : NSOffState;
-            d->drawNSViewInRect(pb, frameRect, p, ^(CGContextRef __unused ctx, const CGRect &r) {
+            d->drawNSViewInRect(pb, frameRect, p, ^(CGContextRef, const CGRect &r) {
                 [pb.cell drawBezelWithFrame:r inView:pb.superview];
             });
             [pb highlight:NO];
@@ -4190,7 +4197,7 @@ void QMacStyle::drawControl(ControlElement ce, const QStyleOption *opt, QPainter
             const auto cw = QMacStylePrivate::CocoaControl(ct, QStyleHelper::SizeLarge);
             auto *sv = static_cast<NSSplitView *>(d->cocoaControl(cw));
             sv.frame = opt->rect.toCGRect();
-            d->drawNSViewInRect(sv, opt->rect, p, ^(CGContextRef __unused ctx, const CGRect &rect) {
+            d->drawNSViewInRect(sv, opt->rect, p, ^(CGContextRef, const CGRect &rect) {
                 [sv drawDividerInRect:rect];
             });
         } else {
@@ -4821,8 +4828,7 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
 {
     Q_D(const QMacStyle);
     QMacCGContext cg(p);
-    QWindow *window = widget && widget->window() ? widget->window()->windowHandle() :
-                     QStyleHelper::styleObjectWindow(opt->styleObject);
+    QWindow *window = widget && widget->window() ? widget->window()->windowHandle() : nullptr;
     d->resolveCurrentNSView(window);
     switch (cc) {
     case CC_ScrollBar:
@@ -5197,7 +5203,7 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                 }
                 pb.frame = frameRect.toCGRect();
                 [pb highlight:isPressed];
-                d->drawNSViewInRect(pb, frameRect, p, ^(CGContextRef __unused ctx, const CGRect &r) {
+                d->drawNSViewInRect(pb, frameRect, p, ^(CGContextRef, const CGRect &r) {
                     [pb.cell drawBezelWithFrame:r inView:pb.superview];
                 });
             } else if (cw.type == QMacStylePrivate::ComboBox) {
@@ -5205,12 +5211,15 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                 auto *cb = static_cast<NSComboBox *>(cc);
                 const auto frameRect = cw.adjustedControlFrame(combo->rect);
                 cb.frame = frameRect.toCGRect();
-#if !QT_CONFIG(appstore_compliant)
-                static_cast<NSComboBoxCell *>(cc.cell).qt_buttonCell.highlighted = isPressed;
-#else
-                // TODO Render to pixmap and darken the button manually
-#endif
-                d->drawNSViewInRect(cb, frameRect, p, ^(CGContextRef __unused ctx, const CGRect &r) {
+
+                // This API was requested to Apple in rdar #36197888. We know it's safe to use up to macOS 10.13.3
+                if (NSButtonCell *cell = static_cast<NSButtonCell *>([cc.cell qt_valueForPrivateKey:@"_buttonCell"])) {
+                    cell.highlighted = isPressed;
+                } else {
+                    // TODO Render to pixmap and darken the button manually
+                }
+
+                d->drawNSViewInRect(cb, frameRect, p, ^(CGContextRef, const CGRect &r) {
                     // FIXME This is usually drawn in the control's superview, but we wouldn't get inactive look in this case
                     [cb.cell drawWithFrame:r inView:cb];
                 });
@@ -5282,13 +5291,10 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                     Q_UNUSED(isHovered); // FIXME No public API for this
 
                     const auto buttonRect = proxy()->subControlRect(CC_TitleBar, titlebar, sc, widget);
-                    const auto drawBlock = ^ (CGContextRef ctx, const CGRect &rect) {
-                        Q_UNUSED(ctx);
-                        Q_UNUSED(rect);
+                    d->drawNSViewInRect(wb, buttonRect, p, ^(CGContextRef, const CGRect &rect) {
                         auto *wbCell = static_cast<NSButtonCell *>(wb.cell);
                         [wbCell drawWithFrame:rect inView:wb];
-                    };
-                    d->drawNSViewInRect(wb, buttonRect, p, drawBlock);
+                    });
                 }
             }
 
@@ -5353,12 +5359,6 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                     d->drawToolbarButtonArrow(tb, p);
                 }
                 if (tb->state & State_On) {
-                    QWindow *window = 0;
-                    if (widget && widget->window())
-                        window = widget->window()->windowHandle();
-                    else if (opt->styleObject)
-                        window = opt->styleObject->property("_q_styleObjectWindow").value<QWindow *>();
-
                     NSView *view = window ? (NSView *)window->winId() : nil;
                     bool isKey = false;
                     if (view)
@@ -5397,8 +5397,8 @@ void QMacStyle::drawComplexControl(ComplexControl cc, const QStyleOptionComplex 
                         pb.enabled = isEnabled;
                         [pb highlight:isPressed];
                         pb.state = isHighlighted && !isPressed ? NSOnState : NSOffState;
-                        const auto buttonRect  = proxy()->subControlRect(cc, tb, SC_ToolButton, widget);
-                        d->drawNSViewInRect(pb, buttonRect, p, ^(CGContextRef __unused ctx, const CGRect &rect) {
+                        const auto buttonRect = proxy()->subControlRect(cc, tb, SC_ToolButton, widget);
+                        d->drawNSViewInRect(pb, buttonRect, p, ^(CGContextRef, const CGRect &rect) {
                             [pb.cell drawBezelWithFrame:rect inView:pb];
                         });
                     }

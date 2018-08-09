@@ -131,6 +131,8 @@ public:
     static int s_indexForSSLExtraData; // index used in SSL_get_ex_data to get the matching QSslSocketBackendPrivate
 #endif
 
+    bool inSetAndEmitError = false;
+
     // Platform specific functions
     void startClientEncryption() override;
     void startServerEncryption() override;
@@ -159,6 +161,8 @@ public:
                              QSslKey *key, QSslCertificate *cert,
                              QList<QSslCertificate> *caCertificates,
                              const QByteArray &passPhrase);
+
+    static QString msgErrorsDuringHandshake();
 };
 
 QT_END_NAMESPACE

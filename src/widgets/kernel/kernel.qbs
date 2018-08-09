@@ -38,6 +38,8 @@ Group {
         "qstackedlayout.h",
         "qstandardgestures.cpp",
         "qstandardgestures_p.h",
+        "qtestsupport_widgets.cpp",
+        "qtestsupport_widgets.h",
         "qtooltip.cpp",
         "qtooltip.h",
         "qtwidgetsglobal.h",

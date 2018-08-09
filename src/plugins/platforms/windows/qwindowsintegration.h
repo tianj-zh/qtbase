@@ -54,6 +54,7 @@ class QWindowsStaticOpenGLContext;
 
 class QWindowsIntegration : public QPlatformIntegration
 {
+    Q_DISABLE_COPY(QWindowsIntegration)
 public:
     enum Options { // Options to be passed on command line.
         FontDatabaseFreeType = 0x1,
@@ -66,11 +67,12 @@ public:
         DontUseDirectWriteFonts = QWindowsFontDatabase::DontUseDirectWriteFonts,
         DontUseColorFonts = QWindowsFontDatabase::DontUseColorFonts,
         AlwaysUseNativeMenus = 0x100,
-        NoNativeMenus = 0x200
+        NoNativeMenus = 0x200,
+        DontUseWMPointer = 0x400,
     };
 
     explicit QWindowsIntegration(const QStringList &paramList);
-    virtual ~QWindowsIntegration();
+    ~QWindowsIntegration() override;
 
     bool hasCapability(QPlatformIntegration::Capability cap) const override;
 
@@ -90,7 +92,7 @@ public:
 #  endif
 #endif // !QT_NO_CLIPBOARD
     QPlatformInputContext *inputContext() const override;
-#ifndef QT_NO_ACCESSIBILITY
+#if QT_CONFIG(accessibility)
     QPlatformAccessibility *accessibility() const override;
 #endif
     QPlatformFontDatabase *fontDatabase() const override;

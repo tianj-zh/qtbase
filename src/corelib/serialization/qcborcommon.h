@@ -42,9 +42,17 @@
 
 #include <QtCore/qobjectdefs.h>
 #include <QtCore/qmetatype.h>
+#include <QtCore/qdebug.h>
 
 #if 0
 #pragma qt_class(QtCborCommon)
+#endif
+
+/* X11 headers use these values too, but as defines */
+#if defined(False) && defined(True)
+#  define QT_X11_DEFINES_FOUND 1
+#  undef True
+#  undef False
 #endif
 
 QT_BEGIN_NAMESPACE
@@ -119,9 +127,21 @@ public:
     QString toString() const;
 };
 
+#if !defined(QT_NO_DEBUG_STREAM)
+Q_CORE_EXPORT QDebug operator<<(QDebug, QCborSimpleType st);
+Q_CORE_EXPORT QDebug operator<<(QDebug, QCborKnownTags tg);
+Q_CORE_EXPORT QDebug operator<<(QDebug, QCborTag tg);
+#endif
+
 QT_END_NAMESPACE
 
-Q_DECLARE_METATYPE(QCborSimpleType)
 Q_DECLARE_METATYPE(QCborTag)
+
+// To avoid changing namespace we need to reinstate defines, even though our .cpp
+// will then have to remove them again.
+#if defined(QT_X11_DEFINES_FOUND)
+#  define True  1
+#  define False 0
+#endif
 
 #endif // QCBORSTREAM_H

@@ -80,6 +80,8 @@
 
 QT_BEGIN_NAMESPACE
 
+Q_LOGGING_CATEGORY(lcQpaBackingStore, "qt.qpa.backingstore", QtWarningMsg);
+
 class QPlatformBackingStorePrivate
 {
 public:
@@ -331,20 +333,23 @@ void QPlatformBackingStore::composeAndFlush(QWindow *window, const QRegion &regi
         d_ptr->context->setScreen(d_ptr->window->screen());
         d_ptr->context->setShareContext(qt_window_private(d_ptr->window)->shareContext());
         if (!d_ptr->context->create()) {
-            qWarning("composeAndFlush: QOpenGLContext creation failed");
+            qCWarning(lcQpaBackingStore, "composeAndFlush: QOpenGLContext creation failed");
             return;
         }
     }
 
     if (!d_ptr->context->makeCurrent(window)) {
-        qWarning("composeAndFlush: makeCurrent() failed");
+        qCWarning(lcQpaBackingStore, "composeAndFlush: makeCurrent() failed");
         return;
     }
+
+    qCDebug(lcQpaBackingStore) << "Composing and flushing" << region << "of" << window
+        << "at offset" << offset << "with" << textures->count() << "texture(s) in" << textures;
 
     QWindowPrivate::get(window)->lastComposeTime.start();
 
     QOpenGLFunctions *funcs = d_ptr->context->functions();
-    funcs->glViewport(0, 0, window->width() * window->devicePixelRatio(), window->height() * window->devicePixelRatio());
+    funcs->glViewport(0, 0, qRound(window->width() * window->devicePixelRatio()), qRound(window->height() * window->devicePixelRatio()));
     funcs->glClearColor(0, 0, 0, translucentBackground ? 0 : 1);
     funcs->glClear(GL_COLOR_BUFFER_BIT);
 

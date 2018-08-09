@@ -106,8 +106,10 @@
 #include <stdio.h>
 
 #if QT_CONFIG(xcb_xlib)
+#define register        /* C++17 deprecated register */
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#undef register
 #endif
 
 #define XCOORD_MAX 16383
@@ -194,11 +196,6 @@ void QXcbWindow::setImageFormatForVisual(const xcb_visualtype_t *visual)
     default:
         break;
     }
-}
-
-static inline bool positionIncludesFrame(QWindow *w)
-{
-    return qt_window_private(w)->positionPolicy == QWindowPrivate::WindowFrameInclusive;
 }
 
 #if QT_CONFIG(xcb_xlib)
@@ -304,6 +301,7 @@ void QXcbWindow::create()
     destroy();
 
     m_windowState = Qt::WindowNoState;
+    m_trayIconWindow = window()->objectName() == QLatin1String("QSystemTrayIconSysWindow");
 
     Qt::WindowType type = window()->type();
 
@@ -330,9 +328,6 @@ void QXcbWindow::create()
         return;
     }
 
-    // Parameters to XCreateWindow() are frame corner + inner size.
-    // This fits in case position policy is frame inclusive. There is
-    // currently no way to implement it for frame-exclusive geometries.
     QPlatformWindow::setGeometry(rect);
 
     if (platformScreen != currentScreen)
@@ -364,7 +359,9 @@ void QXcbWindow::create()
 
     const xcb_visualtype_t *visual = nullptr;
 
-    if (connection()->hasDefaultVisualId()) {
+    if (m_trayIconWindow && connection()->systemTrayTracker()) {
+        visual = platformScreen->visualForId(connection()->systemTrayTracker()->visualId());
+    } else if (connection()->hasDefaultVisualId()) {
         visual = platformScreen->visualForId(connection()->defaultVisualId());
         if (!visual)
             qWarning() << "Failed to use requested visual id.";
@@ -454,9 +451,7 @@ void QXcbWindow::create()
     properties[propertyCount++] = atom(QXcbAtom::WM_TAKE_FOCUS);
     properties[propertyCount++] = atom(QXcbAtom::_NET_WM_PING);
 
-    m_usingSyncProtocol = platformScreen->syncRequestSupported();
-
-    if (m_usingSyncProtocol)
+    if (connection()->hasXSync())
         properties[propertyCount++] = atom(QXcbAtom::_NET_WM_SYNC_REQUEST);
 
     if (window()->flags() & Qt::WindowContextHelpButtonHint)
@@ -480,7 +475,7 @@ void QXcbWindow::create()
                             XCB_ATOM_STRING, 8, wmClass.size(), wmClass.constData());
     }
 
-    if (m_usingSyncProtocol) {
+    if (connection()->hasXSync()) {
         m_syncCounter = xcb_generate_id(xcb_connection());
         xcb_sync_create_counter(xcb_connection(), m_syncCounter, m_syncValue);
 
@@ -499,6 +494,13 @@ void QXcbWindow::create()
     xcb_change_property(xcb_connection(), XCB_PROP_MODE_REPLACE, m_window,
                         atom(QXcbAtom::_NET_WM_PID), XCB_ATOM_CARDINAL, 32,
                         1, &pid);
+
+    const QByteArray clientMachine = QSysInfo::machineHostName().toLocal8Bit();
+    if (!clientMachine.isEmpty()) {
+        xcb_change_property(xcb_connection(), XCB_PROP_MODE_REPLACE, m_window,
+                            atom(QXcbAtom::WM_CLIENT_MACHINE), XCB_ATOM_STRING, 8,
+                            clientMachine.size(), clientMachine.constData());
+    }
 
     xcb_wm_hints_t hints;
     memset(&hints, 0, sizeof(hints));
@@ -558,6 +560,9 @@ void QXcbWindow::create()
         QByteArray wmWindowRole = window()->property(wm_window_role_property_id).toByteArray();
         setWmWindowRole(wmWindowRole);
     }
+
+    if (m_trayIconWindow)
+        m_embedded = requestSystemTrayWindowDock();
 }
 
 QXcbWindow::~QXcbWindow()
@@ -583,7 +588,7 @@ void QXcbWindow::destroy()
     if (connection()->mouseGrabber() == this)
         connection()->setMouseGrabber(nullptr);
 
-    if (m_syncCounter && m_usingSyncProtocol)
+    if (m_syncCounter && connection()->hasXSync())
         xcb_sync_destroy_counter(xcb_connection(), m_syncCounter);
     if (m_window) {
         if (m_netWmUserTimeWindow) {
@@ -619,25 +624,23 @@ void QXcbWindow::setGeometry(const QRect &rect)
     if (!newScreen)
         newScreen = xcbScreen();
 
-    const QRect wmGeometry = windowToWmGeometry(rect);
-
     if (newScreen != currentScreen)
         QWindowSystemInterface::handleWindowScreenChanged(window(), newScreen->QPlatformScreen::screen());
 
     if (qt_window_private(window())->positionAutomatic) {
         const quint32 mask = XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
         const qint32 values[] = {
-            qBound<qint32>(1,           wmGeometry.width(),  XCOORD_MAX),
-            qBound<qint32>(1,           wmGeometry.height(), XCOORD_MAX),
+            qBound<qint32>(1,           rect.width(),  XCOORD_MAX),
+            qBound<qint32>(1,           rect.height(), XCOORD_MAX),
         };
         xcb_configure_window(xcb_connection(), m_window, mask, reinterpret_cast<const quint32*>(values));
     } else {
         const quint32 mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
         const qint32 values[] = {
-            qBound<qint32>(-XCOORD_MAX, wmGeometry.x(),      XCOORD_MAX),
-            qBound<qint32>(-XCOORD_MAX, wmGeometry.y(),      XCOORD_MAX),
-            qBound<qint32>(1,           wmGeometry.width(),  XCOORD_MAX),
-            qBound<qint32>(1,           wmGeometry.height(), XCOORD_MAX),
+            qBound<qint32>(-XCOORD_MAX, rect.x(),      XCOORD_MAX),
+            qBound<qint32>(-XCOORD_MAX, rect.y(),      XCOORD_MAX),
+            qBound<qint32>(1,           rect.width(),  XCOORD_MAX),
+            qBound<qint32>(1,           rect.height(), XCOORD_MAX),
         };
         xcb_configure_window(xcb_connection(), m_window, mask, reinterpret_cast<const quint32*>(values));
         if (window()->parent() && !window()->transientParent()) {
@@ -760,9 +763,6 @@ void QXcbWindow::show()
 
         xcb_set_wm_hints(xcb_connection(), m_window, &hints);
 
-        m_gravity = positionIncludesFrame(window()) ?
-                    XCB_GRAVITY_NORTH_WEST : XCB_GRAVITY_STATIC;
-
         // update WM_NORMAL_HINTS
         propagateSizeHints();
 
@@ -797,7 +797,7 @@ void QXcbWindow::show()
     else if (connection()->time() != XCB_TIME_CURRENT_TIME)
         updateNetWmUserTime(connection()->time());
 
-    if (window()->objectName() == QLatin1String("QSystemTrayIconSysWindow"))
+    if (m_trayIconWindow)
         return; // defer showing until XEMBED_EMBEDDED_NOTIFY
 
     xcb_map_window(xcb_connection(), m_window);
@@ -815,7 +815,7 @@ void QXcbWindow::hide()
     xcb_unmap_window(xcb_connection(), m_window);
 
     // send synthetic UnmapNotify event according to icccm 4.1.4
-    Q_DECLARE_XCB_EVENT(event, xcb_unmap_notify_event_t);
+    q_padded_xcb_event<xcb_unmap_notify_event_t> event = {};
     event.response_type = XCB_UNMAP_NOTIFY;
     event.event = xcbScreen()->root();
     event.window = m_window;
@@ -1360,17 +1360,10 @@ void QXcbWindow::updateNetWmUserTime(xcb_timestamp_t timestamp)
             xcb_change_property(xcb_connection(), XCB_PROP_MODE_REPLACE, m_window, atom(QXcbAtom::_NET_WM_USER_TIME_WINDOW),
                                 XCB_ATOM_WINDOW, 32, 1, &m_netWmUserTimeWindow);
             xcb_delete_property(xcb_connection(), m_window, atom(QXcbAtom::_NET_WM_USER_TIME));
-#ifndef QT_NO_DEBUG
-            QByteArray ba("Qt NET_WM user time window");
-            xcb_change_property(xcb_connection(),
-                                XCB_PROP_MODE_REPLACE,
-                                m_netWmUserTimeWindow,
-                                atom(QXcbAtom::_NET_WM_NAME),
-                                atom(QXcbAtom::UTF8_STRING),
-                                8,
-                                ba.length(),
-                                ba.constData());
-#endif
+
+            QXcbWindow::setWindowTitle(connection(), m_netWmUserTimeWindow,
+                                       QStringLiteral("Qt NET_WM User Time Window"));
+
         } else if (!isSupportedByWM) {
             // WM no longer supports it, then we should remove the
             // _NET_WM_USER_TIME_WINDOW atom.
@@ -1448,24 +1441,7 @@ void QXcbWindow::setParent(const QPlatformWindow *parent)
 
 void QXcbWindow::setWindowTitle(const QString &title)
 {
-    QString fullTitle = formatWindowTitle(title, QString::fromUtf8(" \xe2\x80\x94 ")); // unicode character U+2014, EM DASH
-    const QByteArray ba = std::move(fullTitle).toUtf8();
-    xcb_change_property(xcb_connection(),
-                                   XCB_PROP_MODE_REPLACE,
-                                   m_window,
-                                   atom(QXcbAtom::_NET_WM_NAME),
-                                   atom(QXcbAtom::UTF8_STRING),
-                                   8,
-                                   ba.length(),
-                                   ba.constData());
-
-#if QT_CONFIG(xcb_xlib)
-    Display *dpy = static_cast<Display *>(connection()->xlib_display());
-    XTextProperty *text = qstringToXTP(dpy, title);
-    if (text)
-        XSetWMName(dpy, m_window, text);
-#endif
-    xcb_flush(xcb_connection());
+    setWindowTitle(connection(), m_window, title);
 }
 
 void QXcbWindow::setWindowIconText(const QString &title)
@@ -1537,38 +1513,28 @@ void QXcbWindow::lower()
     xcb_configure_window(xcb_connection(), m_window, mask, values);
 }
 
-// Adapt the geometry to match the WM expection with regards
-// to gravity.
-QRect QXcbWindow::windowToWmGeometry(QRect r) const
-{
-    if (m_dirtyFrameMargins || m_frameMargins.isNull())
-        return r;
-    const bool frameInclusive = positionIncludesFrame(window());
-    // XCB_GRAVITY_STATIC requires the inner geometry, whereas
-    // XCB_GRAVITY_NORTH_WEST requires the frame geometry
-    if (frameInclusive && m_gravity == XCB_GRAVITY_STATIC) {
-        r.translate(m_frameMargins.left(), m_frameMargins.top());
-    } else if (!frameInclusive && m_gravity == XCB_GRAVITY_NORTH_WEST) {
-        r.translate(-m_frameMargins.left(), -m_frameMargins.top());
-    }
-    return r;
-}
-
 void QXcbWindow::propagateSizeHints()
 {
     // update WM_NORMAL_HINTS
     xcb_size_hints_t hints;
     memset(&hints, 0, sizeof(hints));
 
-    const QRect xRect = windowToWmGeometry(geometry());
+    const QRect rect = geometry();
+    QWindowPrivate *win = qt_window_private(window());
 
-    QWindow *win = window();
+    if (!win->positionAutomatic)
+        xcb_size_hints_set_position(&hints, true, rect.x(), rect.y());
+    if (rect.width() < QWINDOWSIZE_MAX || rect.height() < QWINDOWSIZE_MAX)
+        xcb_size_hints_set_size(&hints, true, rect.width(), rect.height());
 
-    if (!qt_window_private(win)->positionAutomatic)
-        xcb_size_hints_set_position(&hints, true, xRect.x(), xRect.y());
-    if (xRect.width() < QWINDOWSIZE_MAX || xRect.height() < QWINDOWSIZE_MAX)
-        xcb_size_hints_set_size(&hints, true, xRect.width(), xRect.height());
-    xcb_size_hints_set_win_gravity(&hints, m_gravity);
+    /* Gravity describes how to interpret x and y values the next time
+       window needs to be positioned on a screen.
+       XCB_GRAVITY_STATIC     : the left top corner of the client window
+       XCB_GRAVITY_NORTH_WEST : the left top corner of the frame window */
+    auto gravity = win->positionPolicy == QWindowPrivate::WindowFrameInclusive
+                   ? XCB_GRAVITY_NORTH_WEST : XCB_GRAVITY_STATIC;
+
+    xcb_size_hints_set_win_gravity(&hints, gravity);
 
     QSize minimumSize = windowMinimumSize();
     QSize maximumSize = windowMaximumSize();
@@ -1832,12 +1798,6 @@ void QXcbWindow::setWmWindowRole(const QByteArray &role)
                         role.size(), role.constData());
 }
 
-void QXcbWindow::setParentRelativeBackPixmapStatic(QWindow *window)
-{
-    if (window->handle())
-        static_cast<QXcbWindow *>(window->handle())->setParentRelativeBackPixmap();
-}
-
 void QXcbWindow::setParentRelativeBackPixmap()
 {
     const quint32 mask = XCB_CW_BACK_PIXMAP;
@@ -1845,33 +1805,12 @@ void QXcbWindow::setParentRelativeBackPixmap()
     xcb_change_window_attributes(xcb_connection(), m_window, mask, values);
 }
 
-bool QXcbWindow::requestSystemTrayWindowDockStatic(const QWindow *window)
-{
-    if (window->handle())
-        return static_cast<QXcbWindow *>(window->handle())->requestSystemTrayWindowDock();
-    return false;
-}
-
-bool QXcbWindow::requestSystemTrayWindowDock() const
+bool QXcbWindow::requestSystemTrayWindowDock()
 {
     if (!connection()->systemTrayTracker())
         return false;
     connection()->systemTrayTracker()->requestSystemTrayWindowDock(m_window);
     return true;
-}
-
-QRect QXcbWindow::systemTrayWindowGlobalGeometryStatic(const QWindow *window)
-{
-    if (window->handle())
-        return static_cast<QXcbWindow *>(window->handle())->systemTrayWindowGlobalGeometry();
-    return QRect();
-}
-
-QRect QXcbWindow::systemTrayWindowGlobalGeometry() const
-{
-   if (!connection()->systemTrayTracker())
-       return QRect();
-   return connection()->systemTrayTracker()->systemTrayWindowGlobalGeometry(m_window);
 }
 
 class ExposeCompressor
@@ -1973,7 +1912,7 @@ void QXcbWindow::handleClientMessageEvent(const xcb_client_message_event_t *even
             connection()->setTime(event->data.data32[1]);
             m_syncValue.lo = event->data.data32[2];
             m_syncValue.hi = event->data.data32[3];
-            if (m_usingSyncProtocol)
+            if (connection()->hasXSync())
                 m_syncState = SyncReceived;
 #ifndef QT_NO_WHATSTHIS
         } else if (protocolAtom == atom(QXcbAtom::_NET_WM_CONTEXT_HELP)) {
@@ -2048,7 +1987,7 @@ void QXcbWindow::handleConfigureNotifyEvent(const xcb_configure_notify_event_t *
     }
     m_oldWindowSize = actualGeometry.size();
 
-    if (m_usingSyncProtocol && m_syncState == SyncReceived)
+    if (connection()->hasXSync() && m_syncState == SyncReceived)
         m_syncState = SyncAndConfigureReceived;
 
     m_dirtyFrameMargins = true;
@@ -2133,7 +2072,7 @@ void QXcbWindow::handleButtonPressEvent(int event_x, int event_y, int root_x, in
 
     updateNetWmUserTime(timestamp);
 
-    if (m_embedded) {
+    if (m_embedded && !m_trayIconWindow) {
         if (window() != QGuiApplication::focusWindow()) {
             const QXcbWindow *container = static_cast<const QXcbWindow *>(parent());
             Q_ASSERT(container != 0);
@@ -2249,15 +2188,15 @@ void QXcbWindow::handleEnterNotifyEvent(int event_x, int event_y, int root_x, in
                                         quint8 mode, quint8 detail, xcb_timestamp_t timestamp)
 {
     connection()->setTime(timestamp);
-#if QT_CONFIG(xcb_xinput)
-    // Updates scroll valuators, as user might have done some scrolling outside our X client.
-    connection()->xi2UpdateScrollingDevices();
-#endif
 
     const QPoint global = QPoint(root_x, root_y);
 
     if (ignoreEnterEvent(mode, detail, connection()) || connection()->mousePressWindow())
         return;
+#if QT_CONFIG(xcb_xinput)
+    // Updates scroll valuators, as user might have done some scrolling outside our X client.
+    connection()->xi2UpdateScrollingDevices();
+#endif
 
     const QPoint local(event_x, event_y);
     QWindowSystemInterface::handleEnterEvent(window(), local, global);
@@ -2521,7 +2460,7 @@ void QXcbWindow::updateSyncRequestCounter()
         // window manager does not expect a sync event yet.
         return;
     }
-    if (m_usingSyncProtocol && (m_syncValue.lo != 0 || m_syncValue.hi != 0)) {
+    if (connection()->hasXSync() && (m_syncValue.lo != 0 || m_syncValue.hi != 0)) {
         xcb_sync_set_counter(xcb_connection(), m_syncCounter, m_syncValue);
         xcb_flush(xcb_connection());
 
@@ -2593,7 +2532,7 @@ bool QXcbWindow::windowEvent(QEvent *event)
 {
     switch (event->type()) {
     case QEvent::FocusIn:
-        if (m_embedded && !event->spontaneous()) {
+        if (m_embedded && !m_trayIconWindow && !event->spontaneous()) {
             QFocusEvent *focusEvent = static_cast<QFocusEvent *>(event);
             switch (focusEvent->reason()) {
             case Qt::TabFocusReason:
@@ -2630,18 +2569,35 @@ bool QXcbWindow::startSystemMove(const QPoint &pos)
 
 bool QXcbWindow::startSystemMoveResize(const QPoint &pos, int corner)
 {
+    return false; // ### FIXME QTBUG-69716
     const xcb_atom_t moveResize = connection()->atom(QXcbAtom::_NET_WM_MOVERESIZE);
     if (!connection()->wmSupport()->isSupportedByWM(moveResize))
         return false;
+
     const QPoint globalPos = QHighDpi::toNativePixels(window()->mapToGlobal(pos), window()->screen());
 #if QT_CONFIG(xcb_xinput)
-    if (connection()->startSystemMoveResizeForTouchBegin(m_window, globalPos, corner))
-        return true;
+    // ### FIXME QTBUG-53389
+    bool startedByTouch = connection()->startSystemMoveResizeForTouchBegin(m_window, globalPos, corner);
+    if (startedByTouch) {
+        if (connection()->isUnity() || connection()->isGnome()) {
+            // These desktops fail to move/resize via _NET_WM_MOVERESIZE (WM bug?).
+            connection()->abortSystemMoveResizeForTouch();
+            return false;
+        }
+        // KWin, Openbox, AwesomeWM have been tested to work with _NET_WM_MOVERESIZE.
+    } else
 #endif
-    return doStartSystemMoveResize(globalPos, corner);
+    { // Started by mouse press.
+        if (connection()->isUnity())
+            return false; // _NET_WM_MOVERESIZE on this WM is bouncy (WM bug?).
+
+        doStartSystemMoveResize(globalPos, corner);
+    }
+
+    return true;
 }
 
-bool QXcbWindow::doStartSystemMoveResize(const QPoint &globalPos, int corner)
+void QXcbWindow::doStartSystemMoveResize(const QPoint &globalPos, int corner)
 {
     const xcb_atom_t moveResize = connection()->atom(QXcbAtom::_NET_WM_MOVERESIZE);
     xcb_client_message_event_t xev;
@@ -2668,7 +2624,6 @@ bool QXcbWindow::doStartSystemMoveResize(const QPoint &globalPos, int corner)
     xcb_send_event(connection()->xcb_connection(), false, xcbScreen()->root(),
                    XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
                    (const char *)&xev);
-    return true;
 }
 
 // Sends an XEmbed message.
@@ -2711,11 +2666,6 @@ void QXcbWindow::handleXEmbedMessage(const xcb_client_message_event_t *event)
     case XEMBED_EMBEDDED_NOTIFY:
         xcb_map_window(xcb_connection(), m_window);
         xcbScreen()->windowShown(this);
-        // Without Qt::WA_TranslucentBackground, we use a ParentRelative BackPixmap.
-        // Clear the whole tray icon window to its background color as early as possible
-        // so that we can get a clean result from grabWindow() later.
-        xcb_clear_area(xcb_connection(), false, m_window, 0, 0, geometry().width(), geometry().height());
-        xcb_flush(xcb_connection());
         break;
     case XEMBED_FOCUS_IN:
         Qt::FocusReason reason;
@@ -2829,6 +2779,28 @@ QXcbScreen *QXcbWindow::xcbScreen() const
     return static_cast<QXcbScreen *>(screen());
 }
 
+void QXcbWindow::setWindowTitle(const QXcbConnection *conn, xcb_window_t window, const QString &title)
+{
+    QString fullTitle = formatWindowTitle(title, QString::fromUtf8(" \xe2\x80\x94 ")); // unicode character U+2014, EM DASH
+    const QByteArray ba = std::move(fullTitle).toUtf8();
+    xcb_change_property(conn->xcb_connection(),
+                        XCB_PROP_MODE_REPLACE,
+                        window,
+                        conn->atom(QXcbAtom::_NET_WM_NAME),
+                        conn->atom(QXcbAtom::UTF8_STRING),
+                        8,
+                        ba.length(),
+                        ba.constData());
+
+#if QT_CONFIG(xcb_xlib)
+    Display *dpy = static_cast<Display *>(conn->xlib_display());
+    XTextProperty *text = qstringToXTP(dpy, title);
+    if (text)
+        XSetWMName(dpy, window, text);
+#endif
+    xcb_flush(conn->xcb_connection());
+}
+
 QString QXcbWindow::windowTitle(const QXcbConnection *conn, xcb_window_t window)
 {
     const xcb_atom_t utf8Atom = conn->atom(QXcbAtom::UTF8_STRING);
@@ -2839,6 +2811,15 @@ QString QXcbWindow::windowTitle(const QXcbConnection *conn, xcb_window_t window)
         const char *name = reinterpret_cast<const char *>(xcb_get_property_value(reply.get()));
         return QString::fromUtf8(name, xcb_get_property_value_length(reply.get()));
     }
+
+    reply = Q_XCB_REPLY_UNCHECKED(xcb_get_property, conn->xcb_connection(),
+                                  false, window, conn->atom(QXcbAtom::WM_NAME),
+                                  XCB_ATOM_STRING, 0, 1024);
+    if (reply && reply->format == 8 && reply->type == XCB_ATOM_STRING) {
+        const char *name = reinterpret_cast<const char *>(xcb_get_property_value(reply.get()));
+        return QString::fromLatin1(name, xcb_get_property_value_length(reply.get()));
+    }
+
     return QString();
 }
 

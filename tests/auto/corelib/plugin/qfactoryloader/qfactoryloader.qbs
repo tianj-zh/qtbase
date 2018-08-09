@@ -23,3 +23,13 @@ Project {
         ]
     }
 }
+
+/*
+android {
+    libs.prefix = android_test_data
+    libs.base = $$OUT_PWD/..
+    libs.files += $$OUT_PWD/../bin
+
+    RESOURCES += libs
+}
+*/

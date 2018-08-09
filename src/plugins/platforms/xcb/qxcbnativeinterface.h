@@ -122,11 +122,6 @@ public:
                                QXcbConnection::PeekOptions option = QXcbConnection::PeekDefault,
                                qint32 peekerId = -1);
 
-    Q_INVOKABLE bool systemTrayAvailable(const QScreen *screen) const;
-    Q_INVOKABLE void setParentRelativeBackPixmap(QWindow *window);
-    Q_INVOKABLE bool systrayVisualHasAlphaChannel();
-    Q_INVOKABLE bool requestSystemTrayWindowDock(const QWindow *window);
-    Q_INVOKABLE QRect systemTrayWindowGlobalGeometry(const QWindow *window);
     Q_INVOKABLE QString dumpConnectionNativeWindows(const QXcbConnection *connection, WId root) const;
     Q_INVOKABLE QString dumpNativeWindows(WId root = 0) const;
 
@@ -136,8 +131,6 @@ signals:
     void systemTrayWindowChanged(QScreen *screen);
 
 private:
-    xcb_window_t locateSystemTray(xcb_connection_t *conn, const QXcbScreen *screen);
-
     const QByteArray m_genericEventFilterType;
 
     xcb_atom_t m_sysTraySelectionAtom = XCB_ATOM_NONE;

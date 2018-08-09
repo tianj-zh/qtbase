@@ -5,16 +5,18 @@ import qbs.FileInfo
 Project {
     references: [
         "debugplugin",
+        "invalidplugin",
         "releaseplugin",
     ]
 
     QtAutotest {
         name: "tst_qplugin"
-        condition: base && Qt.core.config.library
+        condition: base && Qt.core.config.library && !Qt.global.staticBuild
         testDataInstallDir: FileInfo.joinPaths(installDir, "plugins")
         files: "tst_qplugin.cpp"
 
         Depends { name: "debugplugin"; required: false }
+        Depends { name: "invalidplugin"; required: false }
         Depends { name: "releaseplugin"; required: false }
 
         Rule {

@@ -83,6 +83,7 @@ Q_DECLARE_LOGGING_CATEGORY(lcQpaEvents)
 Q_DECLARE_LOGGING_CATEGORY(lcQpaXcb)
 Q_DECLARE_LOGGING_CATEGORY(lcQpaPeeker)
 Q_DECLARE_LOGGING_CATEGORY(lcQpaKeyboard)
+Q_DECLARE_LOGGING_CATEGORY(lcQpaXDnd)
 
 class QXcbVirtualDesktop;
 class QXcbScreen;
@@ -118,6 +119,7 @@ namespace QXcbAtom {
         WM_CLIENT_LEADER,
         WM_WINDOW_ROLE,
         SM_CLIENT_ID,
+        WM_CLIENT_MACHINE,
 
         // Clipboard
         CLIPBOARD,
@@ -474,6 +476,7 @@ public:
     bool hasXInput2() const { return m_xi2Enabled; }
     bool hasShm() const { return has_shm; }
     bool hasShmFd() const { return has_shm_fd; }
+    bool hasXSync() const { return has_sync_extension; }
 
     bool threadedEventHandling() const { return m_reader->isRunning(); }
 
@@ -500,11 +503,12 @@ public:
     void grabServer();
     void ungrabServer();
 
+    bool isUnity() const { return m_xdgCurrentDesktop == "unity"; }
+    bool isGnome() const { return m_xdgCurrentDesktop == "gnome"; }
+
     QXcbNativeInterface *nativeInterface() const { return m_nativeInterface; }
 
     QXcbSystemTrayTracker *systemTrayTracker() const;
-    static bool xEmbedSystemTrayAvailable();
-    static bool xEmbedSystemTrayVisualHasAlphaChannel();
 
     Qt::MouseButtons queryMouseButtons() const;
     Qt::KeyboardModifiers queryKeyboardModifiers() const;
@@ -520,6 +524,7 @@ public:
     Qt::MouseButton xiToQtMouseButton(uint32_t b);
     void xi2UpdateScrollingDevices();
     bool startSystemMoveResizeForTouchBegin(xcb_window_t window, const QPoint &point, int corner);
+    void abortSystemMoveResizeForTouch();
     bool isTouchScreen(int id);
 #endif
     QXcbEventReader *eventReader() const { return m_reader; }
@@ -547,6 +552,7 @@ private:
     void initializeXinerama();
     void initializeXShape();
     void initializeXKB();
+    void initializeXSync();
     void handleClientMessageEvent(const xcb_client_message_event_t *event);
     QXcbScreen* findScreenForCrtc(xcb_window_t rootWindow, xcb_randr_crtc_t crtc) const;
     QXcbScreen* findScreenForOutput(xcb_window_t rootWindow, xcb_randr_output_t output) const;
@@ -693,6 +699,7 @@ private:
     bool has_render_extension = false;
     bool has_shm = false;
     bool has_shm_fd = false;
+    bool has_sync_extension = false;
 
     QPair<int, int> m_xrenderVersion;
 
@@ -717,6 +724,8 @@ private:
     bool m_peekerIndexCacheDirty = false;
     QHash<qint32, qint32> m_peekerToCachedIndex;
     friend class QXcbEventReader;
+
+    QByteArray m_xdgCurrentDesktop;
 };
 #if QT_CONFIG(xcb_xinput)
 #if QT_CONFIG(tabletevent)
@@ -768,18 +777,11 @@ struct QStdFreeDeleter {
         call##_reply(Q_XCB_REPLY_CONNECTION_ARG(__VA_ARGS__), call##_unchecked(__VA_ARGS__), nullptr) \
     )
 
-template <typename T>
-union q_padded_xcb_event {
-  T event;
-  char padding[32];
-};
-
 // The xcb_send_event() requires all events to have 32 bytes. It calls memcpy() on the
 // passed in event. If the passed in event is less than 32 bytes, memcpy() reaches into
 // unrelated memory.
-#define Q_DECLARE_XCB_EVENT(event_var, event_type) \
-    q_padded_xcb_event<event_type> store = {}; \
-    auto &event_var = store.event;
+template <typename T>
+struct alignas(32) q_padded_xcb_event : T { };
 
 QT_END_NAMESPACE
 

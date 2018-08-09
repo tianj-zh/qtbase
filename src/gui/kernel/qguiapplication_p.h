@@ -139,10 +139,10 @@ public:
 
     static void updateFilteredScreenOrientation(QScreen *screen);
     static void reportScreenOrientationChange(QScreen *screen);
-    static void reportScreenOrientationChange(QWindowSystemInterfacePrivate::ScreenOrientationEvent *e);
-    static void reportGeometryChange(QWindowSystemInterfacePrivate::ScreenGeometryEvent *e);
-    static void reportLogicalDotsPerInchChange(QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent *e);
-    static void reportRefreshRateChange(QWindowSystemInterfacePrivate::ScreenRefreshRateEvent *e);
+    static void processScreenOrientationChange(QWindowSystemInterfacePrivate::ScreenOrientationEvent *e);
+    static void processScreenGeometryChange(QWindowSystemInterfacePrivate::ScreenGeometryEvent *e);
+    static void processScreenLogicalDotsPerInchChange(QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent *e);
+    static void processScreenRefreshRateChange(QWindowSystemInterfacePrivate::ScreenRefreshRateEvent *e);
     static void processThemeChanged(QWindowSystemInterfacePrivate::ThemeChangeEvent *tce);
 
     static void processExposeEvent(QWindowSystemInterfacePrivate::ExposeEvent *e);
@@ -217,6 +217,7 @@ public:
     static QWindow *currentMousePressWindow;
     static Qt::ApplicationState applicationState;
     static bool highDpiScalingUpdated;
+    static QPointer<QWindow> currentDragWindow;
 
     struct TabletPointData {
         TabletPointData(qint64 devId = 0) : deviceId(devId), state(Qt::NoButton), target(nullptr) {}

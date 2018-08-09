@@ -46,8 +46,7 @@ QString MingwMakefileGenerator::escapeDependencyPath(const QString &path) const
 {
     QString ret = path;
     ret.replace('\\', "/");  // ### this shouldn't be here
-    ret.replace(' ', QLatin1String("\\ "));
-    return ret;
+    return MakefileGenerator::escapeDependencyPath(ret);
 }
 
 QString MingwMakefileGenerator::getManifestFileForRcFile() const
@@ -72,6 +71,19 @@ MingwMakefileGenerator::parseLibFlag(const ProString &flag, ProString *arg)
 {
     // Skip MSVC handling from Win32MakefileGenerator
     return MakefileGenerator::parseLibFlag(flag, arg);
+}
+
+bool MingwMakefileGenerator::processPrlFileBase(QString &origFile, const QStringRef &origName,
+                                                const QStringRef &fixedBase, int slashOff)
+{
+    if (origName.startsWith("lib")) {
+        QString newFixedBase = fixedBase.left(slashOff) + fixedBase.mid(slashOff + 3);
+        if (Win32MakefileGenerator::processPrlFileBase(origFile, origName,
+                                                       QStringRef(&newFixedBase), slashOff)) {
+            return true;
+        }
+    }
+    return Win32MakefileGenerator::processPrlFileBase(origFile, origName, fixedBase, slashOff);
 }
 
 bool MingwMakefileGenerator::writeMakefile(QTextStream &t)
@@ -165,13 +177,13 @@ void MingwMakefileGenerator::writeMingwParts(QTextStream &t)
         QString header = project->first("PRECOMPILED_HEADER").toQString();
         QString cHeader = preCompHeaderOut + Option::dir_sep + "c";
         t << escapeDependencyPath(cHeader) << ": " << escapeDependencyPath(header) << " "
-          << escapeDependencyPaths(findDependencies(header)).join(" \\\n\t\t")
+          << finalizeDependencyPaths(findDependencies(header)).join(" \\\n\t\t")
           << "\n\t" << mkdir_p_asstring(preCompHeaderOut)
           << "\n\t$(CC) -x c-header -c $(CFLAGS) $(INCPATH) -o " << escapeFilePath(cHeader)
           << ' ' << escapeFilePath(header) << endl << endl;
         QString cppHeader = preCompHeaderOut + Option::dir_sep + "c++";
         t << escapeDependencyPath(cppHeader) << ": " << escapeDependencyPath(header) << " "
-          << escapeDependencyPaths(findDependencies(header)).join(" \\\n\t\t")
+          << finalizeDependencyPaths(findDependencies(header)).join(" \\\n\t\t")
           << "\n\t" << mkdir_p_asstring(preCompHeaderOut)
           << "\n\t$(CXX) -x c++-header -c $(CXXFLAGS) $(INCPATH) -o " << escapeFilePath(cppHeader)
           << ' ' << escapeFilePath(header) << endl << endl;
@@ -313,8 +325,9 @@ void MingwMakefileGenerator::writeBuildRulesPart(QTextStream &t)
 {
     t << "first: all\n";
     t << "all: " << escapeDependencyPath(fileFixify(Option::output.fileName()))
-      << ' ' << depVar("ALL_DEPS") << " $(DESTDIR_TARGET)\n\n";
-    t << "$(DESTDIR_TARGET): " << depVar("PRE_TARGETDEPS") << " $(OBJECTS) " << depVar("POST_TARGETDEPS");
+      << ' ' << depVar("ALL_DEPS") << ' ' << depVar("DEST_TARGET") << "\n\n";
+    t << depVar("DEST_TARGET") << ": "
+      << depVar("PRE_TARGETDEPS") << " $(OBJECTS) " << depVar("POST_TARGETDEPS");
     if (project->first("TEMPLATE") == "aux") {
         t << "\n\n";
         return;

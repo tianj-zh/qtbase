@@ -65,16 +65,13 @@
 #endif
 #include "qcocoaintegration.h"
 
-#ifdef QT_COCOA_ENABLE_ACCESSIBILITY_INSPECTOR
-#include <accessibilityinspector.h>
-#endif
-
 // Private interface
 @interface QT_MANGLE_NAMESPACE(QNSView) ()
 - (BOOL)isTransparentForUserInput;
 @end
 
 @interface QT_MANGLE_NAMESPACE(QNSView) (Drawing) <CALayerDelegate>
+- (BOOL)wantsLayerHelper;
 @end
 
 @interface QT_MANGLE_NAMESPACE(QNSViewMouseMoveHelper) : NSObject
@@ -122,14 +119,9 @@
     QString m_composingText;
     QPointer<QObject> m_composingFocusObject;
     bool m_sendKeyEvent;
-    QStringList *currentCustomDragTypes;
     bool m_dontOverrideCtrlLMB;
     bool m_sendUpAsRightButton;
-    Qt::KeyboardModifiers currentWheelModifiers;
-#ifndef QT_NO_OPENGL
-    QCocoaGLContext *m_glContext;
-    bool m_shouldSetGLContextinDrawRect;
-#endif
+    Qt::KeyboardModifiers m_currentWheelModifiers;
     NSString *m_inputSource;
     QT_MANGLE_NAMESPACE(QNSViewMouseMoveHelper) *m_mouseMoveHelper;
     bool m_resendKeyEvent;
@@ -137,22 +129,16 @@
     bool m_updatingDrag;
     NSEvent *m_currentlyInterpretedKeyEvent;
     QSet<quint32> m_acceptedKeyDowns;
-    bool m_updateRequested;
 }
 
-- (instancetype)init
+- (instancetype)initWithCocoaWindow:(QCocoaWindow *)platformWindow
 {
     if ((self = [super initWithFrame:NSZeroRect])) {
+        m_platformWindow = platformWindow;
         m_buttons = Qt::NoButton;
         m_acceptedMouseDowns = Qt::NoButton;
         m_frameStrutButtons = Qt::NoButton;
         m_sendKeyEvent = false;
-#ifndef QT_NO_OPENGL
-        m_glContext = nullptr;
-        m_shouldSetGLContextinDrawRect = false;
-#endif
-        currentCustomDragTypes = nullptr;
-        m_dontOverrideCtrlLMB = false;
         m_sendUpAsRightButton = false;
         m_inputSource = nil;
         m_mouseMoveHelper = [[QT_MANGLE_NAMESPACE(QNSViewMouseMoveHelper) alloc] initWithView:self];
@@ -160,9 +146,31 @@
         m_scrolling = false;
         m_updatingDrag = false;
         m_currentlyInterpretedKeyEvent = nil;
+        m_dontOverrideCtrlLMB = qt_mac_resolveOption(false, platformWindow->window(),
+            "_q_platform_MacDontOverrideCtrlLMB", "QT_MAC_DONT_OVERRIDE_CTRL_LMB");
+        m_trackingArea = nil;
+
         self.focusRingType = NSFocusRingTypeNone;
         self.cursor = nil;
-        m_updateRequested = false;
+        self.wantsLayer = [self wantsLayerHelper];
+
+        // Enable high-DPI OpenGL for retina displays. Enabling has the side
+        // effect that Cocoa will start calling glViewport(0, 0, width, height),
+        // overriding any glViewport calls in application code. This is usually not a
+        // problem, except if the application wants to have a "custom" viewport.
+        // (like the hellogl example)
+        if (m_platformWindow->window()->supportsOpenGL()) {
+            self.wantsBestResolutionOpenGLSurface = qt_mac_resolveOption(YES, m_platformWindow->window(),
+                "_q_mac_wantsBestResolutionOpenGLSurface", "QT_MAC_WANTS_BEST_RESOLUTION_OPENGL_SURFACE");
+            // See also QCocoaGLContext::makeCurrent for software renderer workarounds.
+        }
+
+        [self registerDragTypes];
+
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                              selector:@selector(textInputContextKeyboardSelectionDidChangeNotification:)
+                                              name:NSTextInputContextKeyboardSelectionDidChangeNotification
+                                              object:nil];
     }
     return self;
 }
@@ -177,43 +185,7 @@
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [m_mouseMoveHelper release];
 
-    delete currentCustomDragTypes;
-
     [super dealloc];
-}
-
-- (instancetype)initWithCocoaWindow:(QCocoaWindow *)platformWindow
-{
-    if ((self = [self init])) {
-        m_platformWindow = platformWindow;
-        m_sendKeyEvent = false;
-        m_dontOverrideCtrlLMB = qt_mac_resolveOption(false, platformWindow->window(), "_q_platform_MacDontOverrideCtrlLMB", "QT_MAC_DONT_OVERRIDE_CTRL_LMB");
-        m_trackingArea = nil;
-
-#ifdef QT_COCOA_ENABLE_ACCESSIBILITY_INSPECTOR
-        // prevent rift in space-time continuum, disable
-        // accessibility for the accessibility inspector's windows.
-        static bool skipAccessibilityForInspectorWindows = false;
-        if (!skipAccessibilityForInspectorWindows) {
-
-            // m_accessibleRoot = window->accessibleRoot();
-
-            AccessibilityInspector *inspector = new AccessibilityInspector(window);
-            skipAccessibilityForInspectorWindows = true;
-            inspector->inspectWindow(window);
-            skipAccessibilityForInspectorWindows = false;
-        }
-#endif
-
-        [self registerDragTypes];
-
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                              selector:@selector(textInputContextKeyboardSelectionDidChangeNotification:)
-                                              name:NSTextInputContextKeyboardSelectionDidChangeNotification
-                                              object:nil];
-    }
-
-    return self;
 }
 
 - (NSString *)description
@@ -362,6 +334,9 @@
 #include "qnsview_keys.mm"
 #include "qnsview_complextext.mm"
 #include "qnsview_menus.mm"
+#ifndef QT_NO_ACCESSIBILITY
+#include "qnsview_accessibility.mm"
+#endif
 
 // -----------------------------------------------------
 

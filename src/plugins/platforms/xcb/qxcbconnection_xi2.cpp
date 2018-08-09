@@ -830,6 +830,11 @@ bool QXcbConnection::startSystemMoveResizeForTouchBegin(xcb_window_t window, con
     return false;
 }
 
+void QXcbConnection::abortSystemMoveResizeForTouch()
+{
+    m_startSystemMoveResizeInfo.window = XCB_NONE;
+}
+
 bool QXcbConnection::xi2SetMouseGrabEnabled(xcb_window_t w, bool grab)
 {
     bool ok = false;
@@ -1017,6 +1022,7 @@ void QXcbConnection::xi2HandleScrollEvent(void *event, ScrollingDevice &scrollin
                     std::swap(angleDelta.rx(), angleDelta.ry());
                     std::swap(rawDelta.rx(), rawDelta.ry());
                 }
+                qCDebug(lcQpaXInputEvents) << "scroll wheel @ window pos" << local << "delta px" << rawDelta << "angle" << angleDelta;
                 QWindowSystemInterface::handleWheelEvent(platformWindow->window(), xiDeviceEvent->time, local, global, rawDelta, angleDelta, modifiers);
             }
         }
@@ -1041,6 +1047,7 @@ void QXcbConnection::xi2HandleScrollEvent(void *event, ScrollingDevice &scrollin
                 Qt::KeyboardModifiers modifiers = keyboard()->translateModifiers(xiDeviceEvent->mods.effective);
                 if (modifiers & Qt::AltModifier)
                     std::swap(angleDelta.rx(), angleDelta.ry());
+                qCDebug(lcQpaXInputEvents) << "scroll wheel (button" << xiDeviceEvent->detail << ") @ window pos" << local << "delta angle" << angleDelta;
                 QWindowSystemInterface::handleWheelEvent(platformWindow->window(), xiDeviceEvent->time, local, global, QPoint(), angleDelta, modifiers);
             }
         }

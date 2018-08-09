@@ -3,7 +3,7 @@ import QtGlobalConfig
 import QtCoreConfig
 
 Project {
-    property bool theCondition: QtCoreConfig.library && !QtGlobalConfig.staticBuild
+    property bool theCondition: QtCoreConfig.library
     references: [
         "almostplugin",
         "lib",

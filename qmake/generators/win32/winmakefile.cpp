@@ -84,7 +84,7 @@ Win32MakefileGenerator::findLibraries(bool linkPrl, bool mergeLflags)
     if (impexts.isEmpty())
         impexts = project->values("QMAKE_EXTENSION_STATICLIB");
     QList<QMakeLocalFileName> dirs;
-  static const char * const lflags[] = { "QMAKE_LIBS", "QMAKE_LIBS_PRIVATE", 0 };
+  static const char * const lflags[] = { "QMAKE_LIBS", "QMAKE_LIBS_PRIVATE", nullptr };
   for (int i = 0; lflags[i]; i++) {
     ProStringList &l = project->values(lflags[i]);
     for (ProStringList::Iterator it = l.begin(); it != l.end();) {
@@ -106,7 +106,7 @@ Win32MakefileGenerator::findLibraries(bool linkPrl, bool mergeLflags)
             for (QList<QMakeLocalFileName>::Iterator dir_it = dirs.begin();
                  dir_it != dirs.end(); ++dir_it) {
                 QString cand = (*dir_it).real() + Option::dir_sep + lib;
-                if (linkPrl && processPrlFile(cand)) {
+                if (linkPrl && processPrlFile(cand, true)) {
                     (*it) = cand;
                     goto found;
                 }
@@ -124,13 +124,13 @@ Win32MakefileGenerator::findLibraries(bool linkPrl, bool mergeLflags)
         } else if (linkPrl && type == LibFlagFile) {
             QString lib = opt.toQString();
             if (fileInfo(lib).isAbsolute()) {
-                if (processPrlFile(lib))
+                if (processPrlFile(lib, false))
                     (*it) = lib;
             } else {
                 for (QList<QMakeLocalFileName>::Iterator dir_it = dirs.begin();
                      dir_it != dirs.end(); ++dir_it) {
                     QString cand = (*dir_it).real() + Option::dir_sep + lib;
-                    if (processPrlFile(cand)) {
+                    if (processPrlFile(cand, false)) {
                         (*it) = cand;
                         break;
                     }
@@ -161,6 +161,23 @@ Win32MakefileGenerator::findLibraries(bool linkPrl, bool mergeLflags)
     }
   }
     return true;
+}
+
+bool Win32MakefileGenerator::processPrlFileBase(QString &origFile, const QStringRef &origName,
+                                                const QStringRef &fixedBase, int slashOff)
+{
+    if (MakefileGenerator::processPrlFileBase(origFile, origName, fixedBase, slashOff))
+        return true;
+    for (int off = fixedBase.length(); off > slashOff; off--) {
+        if (!fixedBase.at(off - 1).isDigit()) {
+            if (off != fixedBase.length()) {
+                return MakefileGenerator::processPrlFileBase(
+                            origFile, origName, fixedBase.left(off), slashOff);
+            }
+            break;
+        }
+    }
+    return false;
 }
 
 void Win32MakefileGenerator::processVars()
@@ -422,7 +439,7 @@ void Win32MakefileGenerator::writeCleanParts(QTextStream &t)
 {
     t << "clean: compiler_clean " << depVar("CLEAN_DEPS");
     {
-        const char *clean_targets[] = { "OBJECTS", "QMAKE_CLEAN", "CLEAN_FILES", 0 };
+        const char *clean_targets[] = { "OBJECTS", "QMAKE_CLEAN", "CLEAN_FILES", nullptr };
         for(int i = 0; clean_targets[i]; ++i) {
             const ProStringList &list = project->values(clean_targets[i]);
             const QString del_statement("-$(DEL_FILE)");
@@ -451,7 +468,7 @@ void Win32MakefileGenerator::writeCleanParts(QTextStream &t)
 
     t << "distclean: clean " << depVar("DISTCLEAN_DEPS");
     {
-        const char *clean_targets[] = { "QMAKE_DISTCLEAN", 0 };
+        const char *clean_targets[] = { "QMAKE_DISTCLEAN", nullptr };
         for(int i = 0; clean_targets[i]; ++i) {
             const ProStringList &list = project->values(clean_targets[i]);
             const QString del_statement("-$(DEL_FILE)");
@@ -563,7 +580,7 @@ void Win32MakefileGenerator::writeStandardParts(QTextStream &t)
 
     t << "DIST          = " << fileVarList("DISTFILES") << ' '
       << fileVarList("HEADERS") << ' ' << fileVarList("SOURCES") << endl;
-    t << "QMAKE_TARGET  = " << fileVar("QMAKE_ORIG_TARGET") << endl;
+    t << "QMAKE_TARGET  = " << fileVar("QMAKE_ORIG_TARGET") << endl;  // unused
     // The comment is important to maintain variable compatibility with Unix
     // Makefiles, while not interpreting a trailing-slash as a linebreak
     t << "DESTDIR        = " << escapeFilePath(destDir) << " #avoid trailing-slash linebreak\n";
@@ -769,6 +786,18 @@ QString Win32MakefileGenerator::escapeFilePath(const QString &path) const
         if (ret.contains(' ') || ret.contains('\t'))
             ret = "\"" + ret + "\"";
         debug_msg(2, "EscapeFilePath: %s -> %s", path.toLatin1().constData(), ret.toLatin1().constData());
+    }
+    return ret;
+}
+
+QString Win32MakefileGenerator::escapeDependencyPath(const QString &path) const
+{
+    QString ret = path;
+    if (!ret.isEmpty()) {
+        static const QRegExp criticalChars(QStringLiteral("([\t #])"));
+        if (ret.contains(criticalChars))
+            ret = "\"" + ret + "\"";
+        debug_msg(2, "EscapeDependencyPath: %s -> %s", path.toLatin1().constData(), ret.toLatin1().constData());
     }
     return ret;
 }

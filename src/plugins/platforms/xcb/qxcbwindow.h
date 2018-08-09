@@ -159,14 +159,8 @@ public:
 
     static void setWindowIconTextStatic(QWindow *window, const QString &text);
 
-    static void setParentRelativeBackPixmapStatic(QWindow *window);
     void setParentRelativeBackPixmap();
-
-    static bool requestSystemTrayWindowDockStatic(const QWindow *window);
-    bool requestSystemTrayWindowDock() const;
-
-    static QRect systemTrayWindowGlobalGeometryStatic(const QWindow *window);
-    QRect systemTrayWindowGlobalGeometry() const;
+    bool requestSystemTrayWindowDock();
     uint visualId() const;
 
     bool needsSync() const;
@@ -177,11 +171,14 @@ public:
     QXcbScreen *xcbScreen() const;
 
     bool startSystemMoveResize(const QPoint &pos, int corner);
-    bool doStartSystemMoveResize(const QPoint &globalPos, int corner);
+    void doStartSystemMoveResize(const QPoint &globalPos, int corner);
+
+    bool isTrayIconWindow() const { return m_trayIconWindow; }
 
     virtual void create();
     virtual void destroy();
 
+    static void setWindowTitle(const QXcbConnection *conn, xcb_window_t window, const QString &title);
     static QString windowTitle(const QXcbConnection *conn, xcb_window_t window);
 
 public Q_SLOTS:
@@ -252,15 +249,13 @@ protected:
 
     Qt::WindowStates m_windowState = Qt::WindowNoState;
 
-    xcb_gravity_t m_gravity = XCB_GRAVITY_STATIC;
-
     bool m_mapped = false;
     bool m_transparent = false;
-    bool m_usingSyncProtocol = false;
     bool m_deferredActivation = false;
     bool m_embedded = false;
     bool m_alertState = false;
     bool m_minimized = false;
+    bool m_trayIconWindow = false;
     xcb_window_t m_netWmUserTimeWindow = XCB_NONE;
 
     QSurfaceFormat m_format;

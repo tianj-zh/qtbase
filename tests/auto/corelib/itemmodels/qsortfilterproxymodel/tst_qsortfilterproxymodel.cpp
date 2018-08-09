@@ -1898,82 +1898,133 @@ void tst_QSortFilterProxyModel::changeSourceData_data()
     QTest::addColumn<QStringList>("sourceItems");
     QTest::addColumn<int>("sortOrder");
     QTest::addColumn<QString>("filter");
+    QTest::addColumn<QStringList>("expectedInitialProxyItems");
     QTest::addColumn<bool>("dynamic");
     QTest::addColumn<int>("row");
     QTest::addColumn<QString>("newValue");
     QTest::addColumn<IntPairList>("removeIntervals");
     QTest::addColumn<IntPairList>("insertIntervals");
+    QTest::addColumn<int>("expectedDataChangedRow"); // -1 if no dataChanged signal expected
+    QTest::addColumn<bool>("expectedLayoutChanged");
     QTest::addColumn<QStringList>("proxyItems");
 
-    QTest::newRow("changeSourceData (1)")
+    QTest::newRow("move_to_end_ascending")
         << (QStringList() << "c" << "b" << "a") // sourceItems
         << static_cast<int>(Qt::AscendingOrder) // sortOrder
         << "" // filter
+        << (QStringList() << "a" << "b" << "c") // expectedInitialProxyItems
         << true // dynamic
         << 2 // row
         << "z" // newValue
         << IntPairList() // removeIntervals
         << IntPairList() // insertIntervals
+        << 2 // dataChanged(row 2) is emitted, see comment "Make sure we also emit dataChanged for the rows" in the source code (unclear why, though)
+        << true // layoutChanged
         << (QStringList() << "b" << "c" << "z") // proxyItems
         ;
 
-    QTest::newRow("changeSourceData (2)")
+    QTest::newRow("move_to_end_descending")
         << (QStringList() << "b" << "c" << "z") // sourceItems
         << static_cast<int>(Qt::DescendingOrder) // sortOrder
         << "" // filter
+        << (QStringList() << "z" << "c" << "b") // expectedInitialProxyItems
         << true // dynamic
         << 1 // row
         << "a" // newValue
         << IntPairList() // removeIntervals
         << IntPairList() // insertIntervals
+        << 2 // dataChanged(row 2) is emitted, see comment "Make sure we also emit dataChanged for the rows" in the source code (unclear why, though)
+        << true // layoutChanged
         << (QStringList() << "z" << "b" << "a") // proxyItems
         ;
 
-    QTest::newRow("changeSourceData (3)")
+    QTest::newRow("no_op_change")
         << (QStringList() << "a" << "b") // sourceItems
         << static_cast<int>(Qt::DescendingOrder) // sortOrder
         << "" // filter
+        << (QStringList() << "b" << "a") // expectedInitialProxyItems
         << true // dynamic
         << 0 // row
         << "a" // newValue
         << IntPairList() // removeIntervals
         << IntPairList() // insertIntervals
+        << -1 // no dataChanged signal
+        << false // layoutChanged
         << (QStringList() << "b" << "a") // proxyItems
         ;
 
-    QTest::newRow("changeSourceData (4)")
+    QTest::newRow("no_effect_on_filtering")
+        << (QStringList() << "a" << "b") // sourceItems
+        << static_cast<int>(Qt::AscendingOrder) // sortOrder
+        << "" // filter
+        << (QStringList() << "a" << "b") // expectedInitialProxyItems
+        << true // dynamic
+        << 1 // row
+        << "z" // newValue
+        << IntPairList() // removeIntervals
+        << IntPairList() // insertIntervals
+        << 1 // expectedDataChangedRow
+        << false // layoutChanged
+        << (QStringList() << "a" << "z") // proxyItems
+        ;
+
+    QTest::newRow("filtered_out_value_stays_out")
         << (QStringList() << "a" << "b" << "c" << "d") // sourceItems
         << static_cast<int>(Qt::AscendingOrder) // sortOrder
         << "a|c" // filter
+        << (QStringList() << "a" << "c") // expectedInitialProxyItems
         << true // dynamic
         << 1 // row
         << "x" // newValue
         << IntPairList() // removeIntervals
         << IntPairList() // insertIntervals
+        << -1 // no dataChanged signal
+        << false // layoutChanged
         << (QStringList() << "a" << "c") // proxyItems
         ;
 
-    QTest::newRow("changeSourceData (5)")
+    QTest::newRow("filtered_out_now_matches")
         << (QStringList() << "a" << "b" << "c" << "d") // sourceItems
         << static_cast<int>(Qt::AscendingOrder) // sortOrder
         << "a|c|x" // filter
+        << (QStringList() << "a" << "c") // expectedInitialProxyItems
         << true // dynamic
         << 1 // row
         << "x" // newValue
         << IntPairList() // removeIntervals
         << (IntPairList() << IntPair(2, 2)) // insertIntervals
+        << -1 // no dataChanged signal
+        << false // layoutChanged
         << (QStringList() << "a" << "c" << "x") // proxyItems
         ;
 
-    QTest::newRow("changeSourceData (6)")
+    QTest::newRow("value_is_now_filtered_out")
+        << (QStringList() << "a" << "b" << "c" << "d") // sourceItems
+        << static_cast<int>(Qt::AscendingOrder) // sortOrder
+        << "a|c" // filter
+        << (QStringList() << "a" << "c") // expectedInitialProxyItems
+        << true // dynamic
+        << 2 // row
+        << "x" // newValue
+        << (IntPairList() << IntPair(1, 1)) // removeIntervals
+        << IntPairList() // insertIntervals
+        << -1 // no dataChanged signal
+        << false // layoutChanged
+        << (QStringList() << "a") // proxyItems
+        ;
+
+    QTest::newRow("non_dynamic_filter_does_not_update_sort")
         << (QStringList() << "c" << "b" << "a") // sourceItems
         << static_cast<int>(Qt::AscendingOrder) // sortOrder
         << "" // filter
+        << (QStringList() << "a" << "b" << "c") // expectedInitialProxyItems
         << false // dynamic
         << 2 // row
         << "x" // newValue
         << IntPairList() // removeIntervals
         << IntPairList() // insertIntervals
+        << 0 // expectedDataChangedRow
+        << false // layoutChanged
         << (QStringList() << "x" << "b" << "c") // proxyItems
         ;
 }
@@ -1983,11 +2034,14 @@ void tst_QSortFilterProxyModel::changeSourceData()
     QFETCH(QStringList, sourceItems);
     QFETCH(int, sortOrder);
     QFETCH(QString, filter);
+    QFETCH(QStringList, expectedInitialProxyItems);
     QFETCH(bool, dynamic);
     QFETCH(int, row);
     QFETCH(QString, newValue);
     QFETCH(IntPairList, removeIntervals);
     QFETCH(IntPairList, insertIntervals);
+    QFETCH(int, expectedDataChangedRow);
+    QFETCH(bool, expectedLayoutChanged);
     QFETCH(QStringList, proxyItems);
 
     QStandardItemModel model;
@@ -2008,11 +2062,21 @@ void tst_QSortFilterProxyModel::changeSourceData()
 
     proxy.setFilterRegExp(filter);
 
+    QCOMPARE(proxy.rowCount(), expectedInitialProxyItems.count());
+    for (int i = 0; i < expectedInitialProxyItems.count(); ++i) {
+        const QModelIndex index = proxy.index(i, 0, QModelIndex());
+        QCOMPARE(proxy.data(index, Qt::DisplayRole).toString(), expectedInitialProxyItems.at(i));
+    }
+
     QSignalSpy removeSpy(&proxy, &QSortFilterProxyModel::rowsRemoved);
     QSignalSpy insertSpy(&proxy, &QSortFilterProxyModel::rowsInserted);
+    QSignalSpy dataChangedSpy(&proxy, &QSortFilterProxyModel::dataChanged);
+    QSignalSpy layoutChangedSpy(&proxy, &QSortFilterProxyModel::layoutChanged);
 
     QVERIFY(removeSpy.isValid());
     QVERIFY(insertSpy.isValid());
+    QVERIFY(dataChangedSpy.isValid());
+    QVERIFY(layoutChangedSpy.isValid());
 
     {
         QModelIndex index = model.index(row, 0, QModelIndex());
@@ -2042,6 +2106,17 @@ void tst_QSortFilterProxyModel::changeSourceData()
         QModelIndex index = proxy.index(i, 0, QModelIndex());
         QCOMPARE(proxy.data(index, Qt::DisplayRole).toString(), proxyItems.at(i));
     }
+
+    if (expectedDataChangedRow == -1) {
+        QCOMPARE(dataChangedSpy.count(), 0);
+    } else {
+        QCOMPARE(dataChangedSpy.count(), 1);
+        const QModelIndex idx = dataChangedSpy.at(0).at(0).value<QModelIndex>();
+        QCOMPARE(idx.row(), expectedDataChangedRow);
+        QCOMPARE(idx.column(), 0);
+    }
+
+    QCOMPARE(layoutChangedSpy.count(), expectedLayoutChanged ? 1 : 0);
 }
 
 // Checks that the model is a table, and that each and every row is like this:

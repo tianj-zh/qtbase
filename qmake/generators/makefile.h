@@ -124,20 +124,22 @@ protected:
     { return replaceExtraCompilerVariables(val, QStringList(in), QStringList(out), forShell); }
 
     //interface to the source file info
-    QMakeLocalFileName fixPathForFile(const QMakeLocalFileName &, bool);
-    QMakeLocalFileName findFileForDep(const QMakeLocalFileName &, const QMakeLocalFileName &);
-    QFileInfo findFileInfo(const QMakeLocalFileName &);
+    QMakeLocalFileName fixPathForFile(const QMakeLocalFileName &, bool) override;
+    QMakeLocalFileName findFileForDep(const QMakeLocalFileName &, const QMakeLocalFileName &) override;
+    QFileInfo findFileInfo(const QMakeLocalFileName &) override;
     QMakeProject *project;
 
     //escape
-    virtual QString escapeFilePath(const QString &path) const { return path; }
+    virtual QString escapeFilePath(const QString &path) const = 0;
     ProString escapeFilePath(const ProString &path) const;
     QStringList escapeFilePaths(const QStringList &paths) const;
     ProStringList escapeFilePaths(const ProStringList &paths) const;
-    virtual QString escapeDependencyPath(const QString &path) const { return escapeFilePath(path); }
+    virtual QString escapeDependencyPath(const QString &path) const;
     ProString escapeDependencyPath(const ProString &path) const;
     QStringList escapeDependencyPaths(const QStringList &paths) const;
     ProStringList escapeDependencyPaths(const ProStringList &paths) const;
+
+    QStringList finalizeDependencyPaths(const QStringList &paths) const;
 
     //initialization
     void verifyCompilers();
@@ -170,7 +172,7 @@ protected:
     { int ret; canExecute(cmdline, &ret); return ret; }
     bool canExecute(const QStringList &cmdline, int *argv0) const;
     inline bool canExecute(const QString &cmdline) const
-    { return canExecute(cmdline.split(' '), 0); }
+    { return canExecute(cmdline.split(' '), nullptr); }
 
     bool mkdir(const QString &dir) const;
     QString mkdir_p_asstring(const QString &dir, bool escape=true) const;
@@ -196,7 +198,7 @@ protected:
     //for prl
     QString prlFileName(bool fixify=true);
     void writePrlFile();
-    bool processPrlFile(QString &);
+    bool processPrlFile(QString &, bool baseOnly);
     virtual void writePrlFile(QTextStream &);
 
     //make sure libraries are found
@@ -244,9 +246,14 @@ protected:
 
     QString installMetaFile(const ProKey &replace_rule, const QString &src, const QString &dst);
 
+    virtual bool processPrlFileBase(QString &origFile, const QStringRef &origName,
+                                    const QStringRef &fixedBase, int slashOff);
+    bool processPrlFileCore(QString &origFile, const QStringRef &origName,
+                            const QString &fixedFile);
+
 public:
     MakefileGenerator();
-    virtual ~MakefileGenerator();
+    ~MakefileGenerator();
     QMakeProject *projectFile() const;
     void setProjectFile(QMakeProject *p);
 

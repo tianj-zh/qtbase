@@ -9,6 +9,7 @@ Group {
     files: [
         "archdetect.cpp",
         "qcompilerdetection.h",
+        "qendian.cpp",
         "qendian.h",
         "qendian_p.h",
         "qflags.h",

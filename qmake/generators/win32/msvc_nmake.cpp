@@ -321,7 +321,7 @@ void NmakeMakefileGenerator::writeNmakeParts(QTextStream &t)
         QString precompRule = QString("-c -Yc -Fp%1 -Fo%2")
                 .arg(escapeFilePath(precompPch), escapeFilePath(precompObj));
         t << escapeDependencyPath(precompObj) << ": " << escapeDependencyPath(precompH) << ' '
-          << escapeDependencyPaths(findDependencies(precompH)).join(" \\\n\t\t")
+          << finalizeDependencyPaths(findDependencies(precompH)).join(" \\\n\t\t")
           << "\n\t$(CXX) " + precompRule +" $(CXXFLAGS) $(INCPATH) -TP "
           << escapeFilePath(precompH) << endl << endl;
     }
@@ -329,7 +329,7 @@ void NmakeMakefileGenerator::writeNmakeParts(QTextStream &t)
         QString precompRuleC = QString("-c -Yc -Fp%1 -Fo%2")
                 .arg(escapeFilePath(precompPchC), escapeFilePath(precompObjC));
         t << escapeDependencyPath(precompObjC) << ": " << escapeDependencyPath(precompH) << ' '
-          << escapeDependencyPaths(findDependencies(precompH)).join(" \\\n\t\t")
+          << finalizeDependencyPaths(findDependencies(precompH)).join(" \\\n\t\t")
           << "\n\t$(CC) " + precompRuleC +" $(CFLAGS) $(INCPATH) -TC "
           << escapeFilePath(precompH) << endl << endl;
     }
@@ -499,7 +499,7 @@ void NmakeMakefileGenerator::writeImplicitRulesPart(QTextStream &t)
     QSet<QString> source_directories;
     if (useInferenceRules) {
         source_directories.insert(".");
-        static const char * const directories[] = { "UI_SOURCES_DIR", "UI_DIR", 0 };
+        static const char * const directories[] = { "UI_SOURCES_DIR", "UI_DIR", nullptr };
         for (int y = 0; directories[y]; y++) {
             QString dirTemp = project->first(directories[y]).toQString();
             if (dirTemp.endsWith("\\"))
@@ -507,7 +507,7 @@ void NmakeMakefileGenerator::writeImplicitRulesPart(QTextStream &t)
             if(!dirTemp.isEmpty())
                 source_directories.insert(dirTemp);
         }
-        static const char * const srcs[] = { "SOURCES", "GENERATED_SOURCES", 0 };
+        static const char * const srcs[] = { "SOURCES", "GENERATED_SOURCES", nullptr };
         for (int x = 0; srcs[x]; x++) {
             const ProStringList &l = project->values(srcs[x]);
             for (ProStringList::ConstIterator sit = l.begin(); sit != l.end(); ++sit) {
@@ -584,8 +584,9 @@ void NmakeMakefileGenerator::writeBuildRulesPart(QTextStream &t)
 
     t << "first: all\n";
     t << "all: " << escapeDependencyPath(fileFixify(Option::output.fileName()))
-      << ' ' << depVar("ALL_DEPS") << " $(DESTDIR_TARGET)\n\n";
-    t << "$(DESTDIR_TARGET): " << depVar("PRE_TARGETDEPS") << " $(OBJECTS) " << depVar("POST_TARGETDEPS");
+      << ' ' << depVar("ALL_DEPS") << ' ' << depVar("DEST_TARGET") << "\n\n";
+    t << depVar("DEST_TARGET") << ": "
+      << depVar("PRE_TARGETDEPS") << " $(OBJECTS) " << depVar("POST_TARGETDEPS");
     if (templateName == "aux") {
         t << "\n\n";
         return;
@@ -619,6 +620,8 @@ void NmakeMakefileGenerator::writeBuildRulesPart(QTextStream &t)
                 }
             } else {
                 manifest = fileFixify(manifest);
+                if (linkerSupportsEmbedding)
+                    extraLFlags = "/MANIFEST:embed /MANIFESTINPUT:" + escapeFilePath(manifest);
             }
 
             const QString resourceId = (templateName == "app") ? "1" : "2";

@@ -101,6 +101,8 @@ public:
 protected:
     void timerEvent(QTimerEvent* e) override;
 
+    bool findXdndAwareTarget(const QPoint &globalPos, xcb_window_t *target_out);
+
 private:
     friend class QXcbDropData;
 
@@ -140,6 +142,9 @@ private:
     // helpers for setting executed drop action outside application
     bool dropped;
     bool canceled;
+
+    // A window from Unity DnD Manager, which does not respect the XDnD spec
+    xcb_window_t xdndCollectionWindow = XCB_NONE;
 
     // top-level window we sent position to last.
     xcb_window_t current_target;

@@ -5,6 +5,7 @@ import QtMultiplexConfig
 QtProduct {
     type: binaryType
     condition: Qt.global.privateConfig.build_parts.contains("tests")
+    aggregate: false
     qbs.buildVariants: QtMultiplexConfig.debug_and_release ? ["debug"] : []
     Properties {
         condition: doInstall

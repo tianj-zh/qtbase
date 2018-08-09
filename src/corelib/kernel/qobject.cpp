@@ -64,6 +64,7 @@
 
 #include <private/qorderedmutexlocker_p.h>
 #include <private/qhooks_p.h>
+#include <qtcore_tracepoints_p.h>
 
 #include <new>
 
@@ -511,7 +512,7 @@ void QMetaCallEvent::placeMetaCall(QObject *object)
 
 /*!
     \class QSignalBlocker
-    \brief Exception-safe wrapper around QObject::blockSignals()
+    \brief Exception-safe wrapper around QObject::blockSignals().
     \since 5.3
     \ingroup objectmodel
     \inmodule QtCore
@@ -820,6 +821,7 @@ QObject::QObject(QObject *parent)
 #endif
     if (Q_UNLIKELY(qtHookData[QHooks::AddQObject]))
         reinterpret_cast<QHooks::AddQObjectCallback>(qtHookData[QHooks::AddQObject])(this);
+    Q_TRACE(QObject_ctor, this);
 }
 
 /*!
@@ -855,6 +857,7 @@ QObject::QObject(QObjectPrivate &dd, QObject *parent)
 #endif
     if (Q_UNLIKELY(qtHookData[QHooks::AddQObject]))
         reinterpret_cast<QHooks::AddQObjectCallback>(qtHookData[QHooks::AddQObject])(this);
+    Q_TRACE(QObject_ctor, this);
 }
 
 /*!
@@ -1029,6 +1032,8 @@ QObject::~QObject()
 #endif
     if (Q_UNLIKELY(qtHookData[QHooks::RemoveQObject]))
         reinterpret_cast<QHooks::RemoveQObjectCallback>(qtHookData[QHooks::RemoveQObject])(this);
+
+    Q_TRACE(QObject_dtor, this);
 
     if (d->parent)        // remove it from parent object
         d->setParent_helper(0);
@@ -3898,7 +3903,8 @@ bool QObject::setProperty(const char *name, const QVariant &value)
                 d->extraData->propertyNames.append(name);
                 d->extraData->propertyValues.append(value);
             } else {
-                if (value == d->extraData->propertyValues.at(idx))
+                if (value.userType() == d->extraData->propertyValues.at(idx).userType()
+                        && value == d->extraData->propertyValues.at(idx))
                     return false;
                 d->extraData->propertyValues[idx] = value;
             }
@@ -4685,7 +4691,7 @@ void qDeleteInEventHandler(QObject *o)
     The signal must be a function declared as a signal in the header.
     The slot function can be any function or functor that can be connected
     to the signal.
-    A function can be connected to a given signal if the signal as at
+    A function can be connected to a given signal if the signal has at
     least as many argument as the slot. A functor can be connected to a signal
     if they have exactly the same number of arguments. There must exist implicit
     conversion between the types of the corresponding arguments in the
@@ -4725,7 +4731,7 @@ void qDeleteInEventHandler(QObject *o)
     The signal must be a function declared as a signal in the header.
     The slot function can be any function or functor that can be connected
     to the signal.
-    A function can be connected to a given signal if the signal as at
+    A function can be connected to a given signal if the signal has at
     least as many argument as the slot. A functor can be connected to a signal
     if they have exactly the same number of arguments. There must exist implicit
     conversion between the types of the corresponding arguments in the

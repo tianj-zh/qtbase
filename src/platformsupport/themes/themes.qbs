@@ -20,7 +20,8 @@ QtModuleProject {
         Depends { name: "Qt.gui_private" }
         Depends {
             name: "Qt.dbus"
-            condition: qbs.targetOS.contains("unix") && !qbs.targetOS.contains("darwin")
+            condition: qbs.targetOS.contains("unix")
+                && !hasUiKit
                 && Qt.global.privateConfig.dbus
         }
 
@@ -33,7 +34,7 @@ QtModuleProject {
         ]
 
         Group {
-            condition: (qbs.targetOS.contains("unix") && !qbs.targetOS.contains("darwin"))
+            condition: (qbs.targetOS.contains("unix") && !hasUiKit)
                 || Qt.gui_private.config.xcb
             prefix: "genericunix/"
             files: [

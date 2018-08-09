@@ -4,6 +4,7 @@ import QtGlobalConfig
 QtAutotestAuxBinary {
     type: binaryType
     binaryType: Qt.global.config.staticBuild ? "staticlibrary" : "dynamiclibrary"
+    installSuffix: "plugins"
 
     Depends { name: "Qt.core" }
 

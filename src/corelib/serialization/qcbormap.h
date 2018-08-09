@@ -163,9 +163,9 @@ public:
         qsizetype operator-(ConstIterator j) const { return (item.i - j.item.i) / 2; }
     };
 
-    QCborMap()  Q_DECL_NOTHROW;
-    QCborMap(const QCborMap &other) Q_DECL_NOTHROW;
-    QCborMap &operator=(const QCborMap &other) Q_DECL_NOTHROW;
+    QCborMap()  noexcept;
+    QCborMap(const QCborMap &other) noexcept;
+    QCborMap &operator=(const QCborMap &other) noexcept;
     QCborMap(std::initializer_list<value_type> args)
         : QCborMap()
     {
@@ -175,14 +175,14 @@ public:
     }
     ~QCborMap();
 
-    void swap(QCborMap &other) Q_DECL_NOTHROW
+    void swap(QCborMap &other) noexcept
     {
         qSwap(d, other.d);
     }
 
     QCborValue toCborValue() const { return *this; }
 
-    qsizetype size() const Q_DECL_NOTHROW Q_DECL_PURE_FUNCTION;
+    qsizetype size() const noexcept Q_DECL_PURE_FUNCTION;
     bool isEmpty() const { return size() == 0; }
     QVector<QCborValue> keys() const;
 
@@ -207,14 +207,22 @@ public:
     QCborValueRef operator[](const QString & key);
     QCborValueRef operator[](const QCborValue &key);
 
+    QCborValue take(qint64 key)
+    { const_iterator it = constFind(key); if (it != constEnd()) return extract(it); return QCborValue(); }
+    QCborValue take(QLatin1String key)
+    { const_iterator it = constFind(key); if (it != constEnd()) return extract(it); return QCborValue(); }
+    QCborValue take(const QString &key)
+    { const_iterator it = constFind(key); if (it != constEnd()) return extract(it); return QCborValue(); }
+    QCborValue take(const QCborValue &key)
+    { const_iterator it = constFind(key); if (it != constEnd()) return extract(it); return QCborValue(); }
     void remove(qint64 key)
-    { iterator it = find(key); if (it != end()) erase(it); }
+    { const_iterator it = constFind(key); if (it != constEnd()) erase(it); }
     void remove(QLatin1String key)
-    { iterator it = find(key); if (it != end()) erase(it); }
+    { const_iterator it = constFind(key); if (it != constEnd()) erase(it); }
     void remove(const QString & key)
-    { iterator it = find(key); if (it != end()) erase(it); }
+    { const_iterator it = constFind(key); if (it != constEnd()) erase(it); }
     void remove(const QCborValue &key)
-    { iterator it = find(key); if (it != end()) erase(it); }
+    { const_iterator it = constFind(key); if (it != constEnd()) erase(it); }
     bool contains(qint64 key) const
     { const_iterator it = find(key); return it != end(); }
     bool contains(QLatin1String key) const
@@ -224,8 +232,8 @@ public:
     bool contains(const QCborValue &key) const
     { const_iterator it = find(key); return it != end(); }
 
-    int compare(const QCborMap &other) const Q_DECL_NOTHROW Q_DECL_PURE_FUNCTION;
-#if QT_HAS_INCLUDE(<compare>)
+    int compare(const QCborMap &other) const noexcept Q_DECL_PURE_FUNCTION;
+#if 0 && QT_HAS_INCLUDE(<compare>)
     std::strong_ordering operator<=>(const QCborMap &other) const
     {
         int c = compare(other);
@@ -234,9 +242,9 @@ public:
         return std::strong_ordering::less;
     }
 #else
-    bool operator==(const QCborMap &other) const Q_DECL_NOTHROW
+    bool operator==(const QCborMap &other) const noexcept
     { return compare(other) == 0; }
-    bool operator!=(const QCborMap &other) const Q_DECL_NOTHROW
+    bool operator!=(const QCborMap &other) const noexcept
     { return !(*this == other); }
     bool operator<(const QCborMap &other) const
     { return compare(other) < 0; }
@@ -254,6 +262,8 @@ public:
     const_iterator cend() const { return constEnd(); }
     iterator erase(iterator it);
     iterator erase(const_iterator it) { return erase(iterator{ it.item.d, it.item.i }); }
+    QCborValue extract(iterator it);
+    QCborValue extract(const_iterator it) { return extract(iterator{ it.item.d, it.item.i }); }
     bool empty() const { return isEmpty(); }
 
     iterator find(qint64 key);
@@ -306,11 +316,16 @@ private:
     void detach(qsizetype reserve = 0);
 
     friend QCborValue;
-    explicit QCborMap(QCborContainerPrivate &dd) Q_DECL_NOTHROW;
+    explicit QCborMap(QCborContainerPrivate &dd) noexcept;
     QExplicitlySharedDataPointer<QCborContainerPrivate> d;
 };
 
 Q_DECLARE_SHARED(QCborMap)
+
+inline QCborValue::QCborValue(QCborMap &&m)
+    : n(-1), container(m.d.take()), t(Map)
+{
+}
 
 inline QCborMap QCborValueRef::toMap() const
 {
@@ -321,6 +336,10 @@ inline QCborMap QCborValueRef::toMap(const QCborMap &m) const
 {
     return concrete().toMap(m);
 }
+
+#if !defined(QT_NO_DEBUG_STREAM)
+Q_CORE_EXPORT QDebug operator<<(QDebug, const QCborMap &m);
+#endif
 
 QT_END_NAMESPACE
 

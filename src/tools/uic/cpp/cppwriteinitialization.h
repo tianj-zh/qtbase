@@ -139,8 +139,6 @@ struct WriteInitialization : public TreeWalker
 private:
     static QString domColor2QString(const DomColor *c);
 
-    QString writeString(const QString &s, const QString &indent) const;
-
     QString iconCall(const DomProperty *prop);
     QString pixCall(const DomProperty *prop) const;
     QString pixCall(const QString &type, const QString &text) const;
@@ -163,6 +161,7 @@ private:
 // special initialization
 //
     class Item {
+        Q_DISABLE_COPY(Item)
     public:
         Item(const QString &itemClassName, const QString &indent, QTextStream &setupUiStream, QTextStream &retranslateUiStream, Driver *driver);
         ~Item();
@@ -178,15 +177,15 @@ private:
         int setupUiCount() const { return m_setupUiData.setters.count(); }
         int retranslateUiCount() const { return m_retranslateUiData.setters.count(); }
     private:
-        struct ItemData {
-            ItemData() : policy(DontGenerate) {}
+        struct ItemData
+        {
             QMultiMap<QString, QString> setters; // directive to setter
             QSet<QString> directives;
             enum TemporaryVariableGeneratorPolicy { // policies with priority, number describes the priority
                 DontGenerate = 1,
                 GenerateWithMultiDirective = 2,
                 Generate = 3
-            } policy;
+            } policy = DontGenerate;
         };
         ItemData m_setupUiData;
         ItemData m_retranslateUiData;
@@ -230,7 +229,6 @@ private:
 
 private:
     QString writeFontProperties(const DomFont *f);
-    void writeResourceIcon(QTextStream &output, const QString &iconName, const QString &indent, const DomResourceIcon *i) const;
     QString writeIconProperties(const DomResourceIcon *i);
     QString writeSizePolicy(const DomSizePolicy *sp);
     QString writeBrushInitialization(const DomBrush *brush);

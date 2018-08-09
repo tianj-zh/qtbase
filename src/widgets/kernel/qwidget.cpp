@@ -1677,8 +1677,8 @@ QWidget::~QWidget()
         }
     }
 
-    d->wasDeleted = true;
     if (d->declarativeData) {
+        d->wasDeleted = true; // needed, so that destroying the declarative data does the right thing
         if (static_cast<QAbstractDeclarativeDataImpl*>(d->declarativeData)->ownedByQml1) {
             if (QAbstractDeclarativeData::destroyed_qml1)
                 QAbstractDeclarativeData::destroyed_qml1(d->declarativeData, this);
@@ -1687,6 +1687,7 @@ QWidget::~QWidget()
                 QAbstractDeclarativeData::destroyed(d->declarativeData, this);
         }
         d->declarativeData = 0;                 // don't activate again in ~QObject
+        d->wasDeleted = false;
     }
 
     d->blockSig = blocked;
@@ -2403,7 +2404,8 @@ static inline void fillRegion(QPainter *painter, const QRegion &rgn, const QBrus
 #endif
 
     } else if (brush.gradient()
-               && brush.gradient()->coordinateMode() == QGradient::ObjectBoundingMode) {
+               && (brush.gradient()->coordinateMode() == QGradient::ObjectBoundingMode
+                   || brush.gradient()->coordinateMode() == QGradient::ObjectMode)) {
         painter->save();
         painter->setClipRegion(rgn);
         painter->fillRect(0, 0, painter->device()->width(), painter->device()->height(), brush);
@@ -7145,6 +7147,12 @@ void QWidget::move(const QPoint &p)
 // move() was invoked with Qt::WA_WState_Created not set (frame geometry
 // unknown), that is, crect has a position including the frame.
 // If we can determine the frame strut, fix that and clear the flag.
+// FIXME: This does not play well with window states other than
+// Qt::WindowNoState, as we depend on calling setGeometry() on the
+// platform window after fixing up the position so that the new
+// geometry is reflected in the platform window, but when the frame
+// comes in after the window has been shown (e.g. maximized), we're
+// not in a position to do that kind of fixup.
 void QWidgetPrivate::fixPosIncludesFrame()
 {
     Q_Q(QWidget);
@@ -7355,7 +7363,8 @@ QByteArray QWidget::saveGeometry() const
     // Version history:
     // - Qt 4.2 - 4.8.6, 5.0 - 5.3    : Version 1.0
     // - Qt 4.8.6 - today, 5.4 - today: Version 2.0, save screen width in addition to check for high DPI scaling.
-    quint16 majorVersion = 2;
+    // - Qt 5.12 - today              : Version 3.0, save QWidget::geometry()
+    quint16 majorVersion = 3;
     quint16 minorVersion = 0;
     const int screenNumber = QDesktopWidgetPrivate::screenNumber(this);
     stream << magicNumber
@@ -7371,7 +7380,8 @@ QByteArray QWidget::saveGeometry() const
            << qint32(screenNumber)
            << quint8(windowState() & Qt::WindowMaximized)
            << quint8(windowState() & Qt::WindowFullScreen)
-           << qint32(QDesktopWidgetPrivate::screenGeometry(screenNumber).width()); // 1.1 onwards
+           << qint32(QDesktopWidgetPrivate::screenGeometry(screenNumber).width()) // added in 2.0
+           << geometry(); // added in 3.0
     return array;
 }
 
@@ -7411,7 +7421,7 @@ bool QWidget::restoreGeometry(const QByteArray &geometry)
     if (storedMagicNumber != magicNumber)
         return false;
 
-    const quint16 currentMajorVersion = 2;
+    const quint16 currentMajorVersion = 3;
     quint16 majorVersion = 0;
     quint16 minorVersion = 0;
 
@@ -7422,7 +7432,8 @@ bool QWidget::restoreGeometry(const QByteArray &geometry)
     // (Allow all minor versions.)
 
     QRect restoredFrameGeometry;
-     QRect restoredNormalGeometry;
+    QRect restoredGeometry;
+    QRect restoredNormalGeometry;
     qint32 restoredScreenNumber;
     quint8 maximized;
     quint8 fullScreen;
@@ -7436,6 +7447,10 @@ bool QWidget::restoreGeometry(const QByteArray &geometry)
 
     if (majorVersion > 1)
         stream >> restoredScreenWidth;
+    if (majorVersion > 2)
+        stream >> restoredGeometry;
+
+    // ### Qt 6 - Perhaps it makes sense to dumb down the restoreGeometry() logic, see QTBUG-69104
 
     if (restoredScreenNumber >= QDesktopWidgetPrivate::numScreens())
         restoredScreenNumber = QDesktopWidgetPrivate::primaryScreen();
@@ -7522,14 +7537,11 @@ bool QWidget::restoreGeometry(const QByteArray &geometry)
        setWindowState(ws);
        d_func()->topData()->normalGeometry = restoredNormalGeometry;
     } else {
-        QPoint offset;
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-        if (isFullScreen())
-            offset = d_func()->topData()->fullScreenOffset;
-#endif
         setWindowState(windowState() & ~(Qt::WindowMaximized | Qt::WindowFullScreen));
-        move(restoredFrameGeometry.topLeft() + offset);
-        resize(restoredNormalGeometry.size());
+        if (majorVersion > 2)
+            setGeometry(restoredGeometry);
+        else
+            setGeometry(restoredNormalGeometry);
     }
     return true;
 }

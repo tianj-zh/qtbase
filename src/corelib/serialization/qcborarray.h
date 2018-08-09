@@ -159,9 +159,9 @@ public:
     typedef const QCborValue &const_reference;
     typedef qsizetype difference_type;
 
-    QCborArray() Q_DECL_NOTHROW;
-    QCborArray(const QCborArray &other) Q_DECL_NOTHROW;
-    QCborArray &operator=(const QCborArray &other) Q_DECL_NOTHROW;
+    QCborArray() noexcept;
+    QCborArray(const QCborArray &other) noexcept;
+    QCborArray &operator=(const QCborArray &other) noexcept;
     QCborArray(std::initializer_list<QCborValue> args)
         : QCborArray()
     {
@@ -171,14 +171,14 @@ public:
     }
     ~QCborArray();
 
-    void swap(QCborArray &other) Q_DECL_NOTHROW
+    void swap(QCborArray &other) noexcept
     {
         qSwap(d, other.d);
     }
 
     QCborValue toCborValue() const { return *this; }
 
-    qsizetype size() const Q_DECL_NOTHROW;
+    qsizetype size() const noexcept;
     bool isEmpty() const { return size() == 0; }
 
     QCborValue at(qsizetype i) const;
@@ -190,10 +190,15 @@ public:
     QCborValueRef operator[](qsizetype i) { Q_ASSERT(i < size()); return begin()[i]; }
 
     void insert(qsizetype i, const QCborValue &value);
+    void insert(qsizetype i, QCborValue &&value);
     void prepend(const QCborValue &value) { insert(0, value); }
+    void prepend(QCborValue &&value) { insert(0, std::move(value)); }
     void append(const QCborValue &value) { insert(-1, value); }
+    void append(QCborValue &&value) { insert(-1, std::move(value)); }
+    QCborValue extract(ConstIterator it) { return extract(Iterator{ it.item.d, it.item.i }); }
+    QCborValue extract(Iterator it);
     void removeAt(qsizetype i);
-    QCborValue takeAt(qsizetype i) { QCborValue v = at(i); removeAt(i); return v; }
+    QCborValue takeAt(qsizetype i) { Q_ASSERT(i < size()); return extract(begin() + i); }
     void removeFirst() { removeAt(0); }
     void removeLast() { removeAt(size() - 1); }
     QCborValue takeFirst() { return takeAt(0); }
@@ -201,8 +206,8 @@ public:
 
     bool contains(const QCborValue &value) const;
 
-    int compare(const QCborArray &other) const Q_DECL_NOTHROW Q_DECL_PURE_FUNCTION;
-#if QT_HAS_INCLUDE(<compare>)
+    int compare(const QCborArray &other) const noexcept Q_DECL_PURE_FUNCTION;
+#if 0 && QT_HAS_INCLUDE(<compare>)
     std::strong_ordering operator<=>(const QCborArray &other) const
     {
         int c = compare(other);
@@ -211,9 +216,9 @@ public:
         return std::strong_ordering::less;
     }
 #else
-    bool operator==(const QCborArray &other) const Q_DECL_NOTHROW
+    bool operator==(const QCborArray &other) const noexcept
     { return compare(other) == 0; }
-    bool operator!=(const QCborArray &other) const Q_DECL_NOTHROW
+    bool operator!=(const QCborArray &other) const noexcept
     { return !(*this == other); }
     bool operator<(const QCborArray &other) const
     { return compare(other) < 0; }
@@ -231,7 +236,10 @@ public:
     const_iterator cend() const { return constEnd(); }
     iterator insert(iterator before, const QCborValue &value)
     { insert(before.item.i, value); return iterator{d.data(), before.item.i}; }
+    iterator insert(const_iterator before, const QCborValue &value)
+    { insert(before.item.i, value); return iterator{d.data(), before.item.i}; }
     iterator erase(iterator it) { removeAt(it.item.i); return iterator{d.data(), it.item.i}; }
+    iterator erase(const_iterator it) { removeAt(it.item.i); return iterator{d.data(), it.item.i}; }
 
     void push_back(const QCborValue &t) { append(t); }
     void push_front(const QCborValue &t) { prepend(t); }
@@ -257,11 +265,16 @@ private:
     void detach(qsizetype reserve = 0);
 
     friend QCborValue;
-    explicit QCborArray(QCborContainerPrivate &dd) Q_DECL_NOTHROW;
+    explicit QCborArray(QCborContainerPrivate &dd) noexcept;
     QExplicitlySharedDataPointer<QCborContainerPrivate> d;
 };
 
 Q_DECLARE_SHARED(QCborArray)
+
+inline QCborValue::QCborValue(QCborArray &&a)
+    : n(-1), container(a.d.take()), t(Array)
+{
+}
 
 inline QCborArray QCborValueRef::toArray() const
 {
@@ -272,6 +285,10 @@ inline QCborArray QCborValueRef::toArray(const QCborArray &a) const
 {
     return concrete().toArray(a);
 }
+
+#if !defined(QT_NO_DEBUG_STREAM)
+Q_CORE_EXPORT QDebug operator<<(QDebug, const QCborArray &a);
+#endif
 
 QT_END_NAMESPACE
 

@@ -43,6 +43,7 @@
 #include <qtreewidget.h>
 #include <qdebug.h>
 #include <qscreen.h>
+#include <qdesktopwidget.h>
 
 typedef QList<int> IntList;
 
@@ -244,6 +245,7 @@ private slots:
     void testMinMaxSectionSize();
     void sizeHintCrash();
     void testResetCachedSizeHint();
+    void statusTips();
 
 protected:
     void setupTestData(bool use_reset_model = false);
@@ -270,12 +272,20 @@ public:
     int rowCount(const QModelIndex&) const override { return rows; }
     int columnCount(const QModelIndex&) const override { return cols; }
     bool isEditable(const QModelIndex &) const { return true; }
-
-    QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override
+    QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const
     {
-        if (role == Qt::DisplayRole)
-            return m_bMultiLine ? QString("%1\n%1").arg(section) : QString::number(section);
-        return QAbstractTableModel::headerData(section, orientation, role);
+        if (section < 0 || (role != Qt::DisplayRole && role != Qt::StatusTipRole))
+            return QVariant();
+        const int row = (orientation == Qt::Vertical ? section : 0);
+        const int col = (orientation == Qt::Horizontal ? section : 0);
+        if (orientation == Qt::Vertical && row >= rows)
+            return QVariant();
+        if (orientation == Qt::Horizontal && col >= cols)
+            return QVariant();
+        if (m_bMultiLine)
+             return QString("%1\n%1").arg(section);
+        return QLatin1Char('[') + QString::number(row) + QLatin1Char(',')
+            + QString::number(col) + QLatin1String(",0] -- Header");
     }
     QVariant data(const QModelIndex &idx, int role = Qt::DisplayRole) const override
     {
@@ -395,6 +405,7 @@ void tst_QHeaderView::getSetCheck()
 
     // int QHeaderView::defaultSectionSize()
     // void QHeaderView::setDefaultSectionSize(int)
+    obj1.setMinimumSectionSize(0);
     obj1.setDefaultSectionSize(-1);
     QVERIFY(obj1.defaultSectionSize() >= 0);
     obj1.setDefaultSectionSize(0);
@@ -661,6 +672,8 @@ void tst_QHeaderView::sectionSize()
 {
 #if defined Q_OS_QNX
     QSKIP("The section size is dpi dependent on QNX");
+#elif defined Q_OS_WINRT
+    QSKIP("Fails on WinRT - QTBUG-68297");
 #endif
     QFETCH(QList<int>, boundsCheck);
     QFETCH(QList<int>, defaultSizes);
@@ -765,6 +778,8 @@ void tst_QHeaderView::visualIndexAt()
 {
 #if defined Q_OS_QNX
     QSKIP("The section size is dpi dependent on QNX");
+#elif defined Q_OS_WINRT
+    QSKIP("Fails on WinRT - QTBUG-68297");
 #endif
     QFETCH(QList<int>, hidden);
     QFETCH(QList<int>, from);
@@ -2046,6 +2061,7 @@ void tst_QHeaderView::defaultSectionSize()
     QHeaderView h((Qt::Orientation)direction);
 
     h.setModel(&m);
+    h.setMinimumSectionSize(0);
 
     QCOMPARE(h.defaultSectionSize(), oldDefaultSize);
     h.setDefaultSectionSize(newDefaultSize);
@@ -2146,6 +2162,9 @@ void tst_QHeaderView::preserveHiddenSectionWidth()
 
 void tst_QHeaderView::invisibleStretchLastSection()
 {
+#ifdef Q_OS_WINRT
+    QSKIP("Fails on WinRT - QTBUG-68297");
+#endif
     int count = 6;
     QStandardItemModel model(1, count);
     QHeaderView view(Qt::Horizontal);
@@ -3309,8 +3328,16 @@ void tst_QHeaderView::testMinMaxSectionSize()
     QHeaderView &header = *tv.horizontalHeader();
     header.setMinimumSectionSize(sectionSizeMin);
     header.setMaximumSectionSize(sectionSizeMax);
+    // check bounds for default section size
+    header.setDefaultSectionSize(sectionSizeMin - 1);
+    QCOMPARE(header.defaultSectionSize(), sectionSizeMin);
+    header.setDefaultSectionSize(sectionSizeMax + 1);
+    QCOMPARE(header.defaultSectionSize(), sectionSizeMax);
+
     header.setDefaultSectionSize(defaultSectionSize);
+    QCOMPARE(header.defaultSectionSize(), defaultSectionSize);
     header.setStretchLastSection(stretchLastSection);
+    QCOMPARE(header.stretchLastSection(), stretchLastSection);
 
     // check defaults
     QCOMPARE(header.sectionSize(0), defaultSectionSize);
@@ -3360,6 +3387,55 @@ void tst_QHeaderView::testResetCachedSizeHint()
     QVERIFY(s1 != s2);
 }
 
+
+class StatusTipHeaderView : public QHeaderView
+{
+public:
+    StatusTipHeaderView(Qt::Orientation orientation = Qt::Horizontal, QWidget *parent = 0) :
+        QHeaderView(orientation, parent), gotStatusTipEvent(false) {}
+    bool gotStatusTipEvent;
+    QString statusTipText;
+protected:
+    bool event(QEvent *e)
+    {
+        if (e->type() == QEvent::StatusTip) {
+            gotStatusTipEvent = true;
+            statusTipText = static_cast<QStatusTipEvent *>(e)->tip();
+        }
+        return QHeaderView::event(e);
+    }
+};
+
+void tst_QHeaderView::statusTips()
+{
+    StatusTipHeaderView headerView;
+    QtTestModel model;
+    model.rows = model.cols = 5;
+    headerView.setModel(&model);
+    headerView.viewport()->setMouseTracking(true);
+    headerView.setGeometry(QRect(QPoint(QApplication::desktop()->geometry().center() - QPoint(250, 250)),
+                           QSize(500, 500)));
+    headerView.show();
+    qApp->setActiveWindow(&headerView);
+    QVERIFY(QTest::qWaitForWindowActive(&headerView));
+
+    // Ensure it is moved away first and then moved to the relevant section
+    QTest::mouseMove(QApplication::desktop(),
+                     headerView.rect().bottomLeft() + QPoint(20, 20));
+    QPoint centerPoint = QRect(headerView.sectionPosition(0), 0,
+                               headerView.sectionSize(0), headerView.height()).center();
+    QTest::mouseMove(headerView.windowHandle(), centerPoint);
+    QTRY_VERIFY(headerView.gotStatusTipEvent);
+    QCOMPARE(headerView.statusTipText, QLatin1String("[0,0,0] -- Header"));
+
+    headerView.gotStatusTipEvent = false;
+    headerView.statusTipText.clear();
+    centerPoint = QRect(headerView.sectionPosition(1), 0,
+                        headerView.sectionSize(1), headerView.height()).center();
+    QTest::mouseMove(headerView.windowHandle(), centerPoint);
+    QTRY_VERIFY(headerView.gotStatusTipEvent);
+    QCOMPARE(headerView.statusTipText, QLatin1String("[0,1,0] -- Header"));
+}
 
 QTEST_MAIN(tst_QHeaderView)
 #include "tst_qheaderview.moc"

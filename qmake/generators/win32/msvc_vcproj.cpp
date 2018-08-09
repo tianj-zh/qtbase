@@ -112,7 +112,7 @@ VcprojGenerator::VcprojGenerator()
     : Win32MakefileGenerator(),
       is64Bit(false),
       customBuildToolFilterFileSuffix(QStringLiteral(".cbt")),
-      projectWriter(0)
+      projectWriter(nullptr)
 {
 }
 
@@ -1100,7 +1100,7 @@ void VcprojGenerator::initLinkerTool()
     if (!project->values("DEF_FILE").isEmpty())
         conf.linker.ModuleDefinitionFile = project->first("DEF_FILE").toQString();
 
-    static const char * const lflags[] = { "QMAKE_LIBS", "QMAKE_LIBS_PRIVATE", 0 };
+    static const char * const lflags[] = { "QMAKE_LIBS", "QMAKE_LIBS_PRIVATE", nullptr };
     for (int i = 0; lflags[i]; i++) {
         const auto libs = fixLibFlags(lflags[i]);
         for (const ProString &lib : libs) {
@@ -1617,20 +1617,15 @@ QString VcprojGenerator::replaceExtraCompilerVariables(
 
 bool VcprojGenerator::openOutput(QFile &file, const QString &/*build*/) const
 {
-    QString outdir;
-    if(!file.fileName().isEmpty()) {
-        QFileInfo fi(fileInfo(file.fileName()));
-        if(fi.isDir())
-            outdir = file.fileName() + QDir::separator();
-    }
-    if(!outdir.isEmpty() || file.fileName().isEmpty()) {
-        ProString ext = project->first("VCPROJ_EXTENSION");
-        if(project->first("TEMPLATE") == "vcsubdirs")
-            ext = project->first("VCSOLUTION_EXTENSION");
-        ProString outputName = project->first("TARGET");
-        if (!project->first("MAKEFILE").isEmpty())
-            outputName = project->first("MAKEFILE");
-        file.setFileName(outdir + outputName + ext);
+    ProString fileName = file.fileName();
+    ProString extension = project->first("TEMPLATE") == "vcsubdirs"
+            ? project->first("VCSOLUTION_EXTENSION") : project->first("VCPROJ_EXTENSION");
+    if (!fileName.endsWith(extension)) {
+        if (fileName.isEmpty()) {
+            fileName = !project->first("MAKEFILE").isEmpty()
+                    ? project->first("MAKEFILE") : project->first("TARGET");
+        }
+        file.setFileName(fileName + extension);
     }
     return Win32MakefileGenerator::openOutput(file, QString());
 }

@@ -1077,7 +1077,10 @@ QDataStream &operator<<(QDataStream &s, const QBrush &b)
         s << type_as_int;
         if (s.version() >= QDataStream::Qt_4_3) {
             s << int(gradient->spread());
-            s << int(gradient->coordinateMode());
+            QGradient::CoordinateMode co_mode = gradient->coordinateMode();
+            if (s.version() < QDataStream::Qt_5_12 && co_mode == QGradient::ObjectMode)
+                co_mode = QGradient::ObjectBoundingMode;
+            s << int(co_mode);
         }
 
         if (s.version() >= QDataStream::Qt_4_5)
@@ -1349,7 +1352,7 @@ QGradient::QGradient()
     Constructs a gradient based on a predefined \a preset.
 
     The coordinate mode of the resulting gradient is
-    QGradient::ObjectBoundingMode, allowing the preset
+    QGradient::ObjectMode, allowing the preset
     to be applied to arbitrary object sizes.
 */
 QGradient::QGradient(Preset preset)
@@ -1377,7 +1380,7 @@ QGradient::QGradient(Preset preset)
             return;
 
         m_type = LinearGradient;
-        setCoordinateMode(ObjectBoundingMode);
+        setCoordinateMode(ObjectMode);
         setSpread(PadSpread);
 
         const QJsonValue start = presetData[QLatin1Literal("start")];
@@ -1388,7 +1391,7 @@ QGradient::QGradient(Preset preset)
         m_data.linear.y2 = end[QLatin1Literal("y")].toDouble();
 
         for (const QJsonValue &stop : presetData[QLatin1String("stops")].toArray()) {
-            setColorAt(stop[QLatin1Literal("stop")].toDouble(),
+            setColorAt(stop[QLatin1Literal("position")].toDouble(),
                 QColor(QRgb(stop[QLatin1Literal("color")].toInt())));
         }
 
@@ -1562,14 +1565,19 @@ QGradientStops QGradient::stops() const
 
     \value LogicalMode This is the default mode. The gradient coordinates
     are specified logical space just like the object coordinates.
+    \value ObjectMode In this mode the gradient coordinates are
+    relative to the bounding rectangle of the object being drawn, with
+    (0,0) in the top left corner, and (1,1) in the bottom right corner
+    of the object's bounding rectangle. This value was added in Qt
+    5.12.
     \value StretchToDeviceMode In this mode the gradient coordinates
     are relative to the bounding rectangle of the paint device,
     with (0,0) in the top left corner, and (1,1) in the bottom right
     corner of the paint device.
-    \value ObjectBoundingMode In this mode the gradient coordinates are
-    relative to the bounding rectangle of the object being drawn, with
-    (0,0) in the top left corner, and (1,1) in the bottom right corner
-    of the object's bounding rectangle.
+    \value ObjectBoundingMode This mode is the same as ObjectMode, except that
+    the {QBrush::transform()} {brush transform}, if any, is applied relative to
+    the logical space instead of the object space. This enum value is
+    deprecated and should not be used in new code.
 */
 
 /*!

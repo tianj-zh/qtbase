@@ -202,6 +202,7 @@ void Generator::generateCode()
             }
             QByteArray alias = cdef->flagAliases.value(def.name);
             if (cdef->enumDeclarations.contains(alias)) {
+                def.className = def.name;
                 def.name = alias;
                 enumList += def;
             }
@@ -523,29 +524,29 @@ void Generator::generateCode()
 // Finally create and initialize the static meta object
 //
     if (isQt)
-        fprintf(out, "QT_INIT_METAOBJECT const QMetaObject QObject::staticQtMetaObject = {\n");
+        fprintf(out, "QT_INIT_METAOBJECT const QMetaObject QObject::staticQtMetaObject = { {\n");
     else
-        fprintf(out, "QT_INIT_METAOBJECT const QMetaObject %s::staticMetaObject = {\n", cdef->qualified.constData());
+        fprintf(out, "QT_INIT_METAOBJECT const QMetaObject %s::staticMetaObject = { {\n", cdef->qualified.constData());
 
     if (isQObject)
-        fprintf(out, "    { nullptr, ");
+        fprintf(out, "    nullptr,\n");
     else if (cdef->superclassList.size() && (!cdef->hasQGadget || knownGadgets.contains(purestSuperClass)))
-        fprintf(out, "    { &%s::staticMetaObject, ", purestSuperClass.constData());
+        fprintf(out, "    &%s::staticMetaObject,\n", purestSuperClass.constData());
     else
-        fprintf(out, "    { nullptr, ");
-    fprintf(out, "qt_meta_stringdata_%s.data,\n"
-            "      qt_meta_data_%s, ", qualifiedClassNameIdentifier.constData(),
+        fprintf(out, "    nullptr,\n");
+    fprintf(out, "    qt_meta_stringdata_%s.data,\n"
+            "    qt_meta_data_%s,\n", qualifiedClassNameIdentifier.constData(),
             qualifiedClassNameIdentifier.constData());
     if (hasStaticMetaCall)
-        fprintf(out, " qt_static_metacall, ");
+        fprintf(out, "    qt_static_metacall,\n");
     else
-        fprintf(out, " nullptr, ");
+        fprintf(out, "    nullptr,\n");
 
     if (extraList.isEmpty())
-        fprintf(out, "nullptr, ");
+        fprintf(out, "    nullptr,\n");
     else
-        fprintf(out, "qt_meta_extradata_%s, ", qualifiedClassNameIdentifier.constData());
-    fprintf(out, "nullptr}\n};\n\n");
+        fprintf(out, "    qt_meta_extradata_%s,\n", qualifiedClassNameIdentifier.constData());
+    fprintf(out, "    nullptr\n} };\n\n");
 
     if(isQt)
         return;
@@ -922,7 +923,7 @@ void Generator::generateEnums(int index)
             const QByteArray &val = e.values.at(j);
             QByteArray code = cdef->qualified.constData();
             if (e.isEnumClass)
-                code += "::" + e.name;
+                code += "::" + (e.className.isNull() ? e.name : e.className);
             code += "::" + val;
             fprintf(out, "    %4d, uint(%s),\n",
                     stridx(val), code.constData());

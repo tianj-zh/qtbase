@@ -192,6 +192,17 @@ QDebug operator<<(QDebug debug, const QMacAutoReleasePool *pool);
 Q_CORE_EXPORT void qt_apple_check_os_version();
 Q_CORE_EXPORT bool qt_apple_isApplicationExtension();
 
+#if defined(Q_OS_MACOS) && !defined(QT_BOOTSTRAPPED)
+Q_CORE_EXPORT bool qt_apple_isSandboxed();
+# ifdef __OBJC__
+QT_END_NAMESPACE
+@interface NSObject (QtSandboxHelpers)
+- (id)qt_valueForPrivateKey:(NSString *)key;
+@end
+QT_BEGIN_NAMESPACE
+# endif
+#endif
+
 #if !defined(QT_BOOTSTRAPPED) && !defined(Q_OS_WATCHOS)
 QT_END_NAMESPACE
 # if defined(Q_OS_MACOS)
@@ -327,6 +338,50 @@ private:
 #define QT_APPLE_LOG_ACTIVITY_WITH_PARENT(...)
 #define QT_APPLE_LOG_ACTIVITY(...)
 #endif // QT_DARWIN_PLATFORM_SDK_EQUAL_OR_ABOVE
+
+// -------------------------------------------------------------------------
+
+#if defined( __OBJC__)
+class QMacScopedObserver
+{
+public:
+    QMacScopedObserver() {}
+
+    template<typename Functor>
+    QMacScopedObserver(id object, NSNotificationName name, Functor callback) {
+        observer = [[NSNotificationCenter defaultCenter] addObserverForName:name
+            object:object queue:nil usingBlock:^(NSNotification *) {
+                callback();
+            }
+        ];
+    }
+
+    QMacScopedObserver(const QMacScopedObserver& other) = delete;
+    QMacScopedObserver(QMacScopedObserver&& other) : observer(other.observer) {
+        other.observer = nil;
+    }
+
+    QMacScopedObserver &operator=(const QMacScopedObserver& other) = delete;
+    QMacScopedObserver &operator=(QMacScopedObserver&& other) {
+        if (this != &other) {
+            remove();
+            observer = other.observer;
+            other.observer = nil;
+        }
+        return *this;
+    }
+
+    void remove() {
+        if (observer)
+            [[NSNotificationCenter defaultCenter] removeObserver:observer];
+        observer = nil;
+    }
+    ~QMacScopedObserver() { remove(); }
+
+private:
+    id observer = nil;
+};
+#endif
 
 // -------------------------------------------------------------------------
 

@@ -6,6 +6,7 @@ Group {
     files: [
         "qcborarray.h",
         "qcborcommon.h",
+        "qcbordiagnostic.cpp",
         "qcbormap.h",
         "qcborstream.cpp",
         "qcborstream.h",

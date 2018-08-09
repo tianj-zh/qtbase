@@ -150,6 +150,7 @@ private slots:
     void taskQTBUG_51086_skippingIndexesInSelectedIndexes();
     void taskQTBUG_47694_indexOutOfBoundBatchLayout();
     void itemAlignment();
+    void internalDragDropMove();
 };
 
 // Testing get/set functions
@@ -1463,6 +1464,9 @@ void tst_QListView::wordWrap()
     QApplication::processEvents();
 
     QTRY_COMPARE(lv.horizontalScrollBar()->isVisible(), false);
+#ifdef Q_OS_WINRT
+QSKIP("setFixedSize does not work on WinRT. Vertical scroll bar will not be visible.");
+#endif
     QTRY_COMPARE(lv.verticalScrollBar()->isVisible(), true);
 }
 
@@ -2084,6 +2088,9 @@ void tst_QListView::taskQTBUG_21115_scrollToAndHiddenItems_data()
 void tst_QListView::taskQTBUG_21115_scrollToAndHiddenItems()
 {
     QFETCH(int, flow);
+#ifdef Q_OS_WINRT
+    QSKIP("Fails on WinRT - QTBUG-68297");
+#endif
 
     ScrollPerItemListView lv;
     lv.setUniformItemSizes(true);
@@ -2294,6 +2301,9 @@ void tst_QListView::testScrollToWithHidden()
 
     lv.scrollTo(model.index(26, 0));
     int expectedScrollBarValue = lv.verticalScrollBar()->value();
+#ifdef Q_OS_WINRT
+    QSKIP("Might fail on WinRT - QTBUG-68297");
+#endif
     QVERIFY(expectedScrollBarValue != 0);
 
     lv.scrollTo(model.index(25, 0));
@@ -2567,6 +2577,54 @@ void tst_QListView::itemAlignment()
 
     QVERIFY(w.visualRect(item1->index()).width() < w.visualRect(item2->index()).width());
 }
+
+void tst_QListView::internalDragDropMove()
+{
+    const QString platform(QGuiApplication::platformName().toLower());
+    if (platform != QLatin1String("xcb"))
+        QSKIP("Need a window system with proper DnD support via injected mouse events");
+
+    // on an internal move, the item was deleted which should not happen
+    // see QTBUG-67440
+    class QListViewWithPublicStartDrag : public QListView
+    {
+    public:
+        using QListView::startDrag;
+    };
+
+    QStandardItemModel data(0, 1);
+    QPixmap pixmap(32, 32);
+    for (int i = 0; i < 10; ++i) {
+        pixmap.fill(Qt::GlobalColor(i + 1));
+        data.appendRow(new QStandardItem(QIcon(pixmap), QString::number(i)));
+    }
+    QItemSelectionModel selections(&data);
+    QListViewWithPublicStartDrag list;
+    list.setWindowTitle(QTest::currentTestFunction());
+    list.setViewMode(QListView::IconMode);
+    list.setDefaultDropAction(Qt::MoveAction);
+    list.setModel(&data);
+    list.setSelectionModel(&selections);
+    list.resize(300, 300);
+    list.show();
+    selections.select(data.index(1, 0), QItemSelectionModel::Select);
+    QVERIFY(QTest::qWaitForWindowExposed(&list));
+
+    // execute as soon as the eventloop is running again
+    // which is the case inside list.startDrag()
+    QTimer::singleShot(0, [&list]()
+    {
+        const QPoint pos = list.rect().center();
+        QMouseEvent mouseMove(QEvent::MouseMove, pos, list.mapToGlobal(pos), Qt::NoButton, 0, 0);
+        QApplication::sendEvent(&list, &mouseMove);
+        QMouseEvent mouseRelease(QEvent::MouseButtonRelease, pos, list.mapToGlobal(pos), Qt::LeftButton, 0, 0);
+        QApplication::sendEvent(&list, &mouseRelease);
+    });
+    const int expectedCount = data.rowCount();
+    list.startDrag(Qt::MoveAction|Qt::CopyAction);
+    QCOMPARE(expectedCount, data.rowCount());
+}
+
 
 QTEST_MAIN(tst_QListView)
 #include "tst_qlistview.moc"

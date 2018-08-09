@@ -83,6 +83,7 @@ private slots:
 
 #if QT_CONFIG(draganddrop)
     void tst_dnd();
+    void tst_dnd_events();
 #endif
 
     void tst_qtbug35600();
@@ -156,6 +157,9 @@ void tst_QWidget_window::tst_move_show()
     QWidget w;
     w.move(100, 100);
     w.show();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Winrt does not support move", Abort);
+#endif
     QCOMPARE(w.pos(), QPoint(100, 100));
 //    QCoreApplication::processEvents(QEventLoop::AllEvents, 3000);
 }
@@ -185,6 +189,9 @@ void tst_QWidget_window::tst_resize_show()
     QWidget w;
     w.resize(200, 200);
     w.show();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Winrt does not support resize", Abort);
+#endif
     QCOMPARE(w.size(), QSize(200, 200));
 //    QCoreApplication::processEvents(QEventLoop::AllEvents, 1000);
 }
@@ -416,6 +423,7 @@ static const char *expectedLogC[] = {
     "Event at 11,81 ignored",
     "Event at 11,101 ignored",
     "acceptingDropsWidget1::dragEnterEvent at 1,11 action=1 MIME_DATA_ADDRESS 'testmimetext'",
+    "acceptingDropsWidget1::dragMoveEvent at 1,11 action=1 MIME_DATA_ADDRESS 'testmimetext'",
     "Event at 11,121 accepted",
     "acceptingDropsWidget1::dragMoveEvent at 1,31 action=1 MIME_DATA_ADDRESS 'testmimetext'",
     "Event at 11,141 accepted",
@@ -426,6 +434,7 @@ static const char *expectedLogC[] = {
     "acceptingDropsWidget1::dragLeaveEvent QDragLeaveEvent",
     "Event at 11,201 ignored",
     "acceptingDropsWidget2::dragEnterEvent at 1,11 action=1 MIME_DATA_ADDRESS 'testmimetext'",
+    "acceptingDropsWidget2::dragMoveEvent at 1,11 action=1 MIME_DATA_ADDRESS 'testmimetext'",
     "Event at 11,221 accepted",
     "acceptingDropsWidget2::dragMoveEvent at 1,31 action=1 MIME_DATA_ADDRESS 'testmimetext'",
     "Event at 11,241 accepted",
@@ -591,6 +600,92 @@ void tst_QWidget_window::tst_dnd()
 
     QCOMPARE(log, expectedLog);
 }
+
+class DnDEventRecorder : public QWidget
+{
+    Q_OBJECT
+public:
+    QString _dndEvents;
+    DnDEventRecorder() { setAcceptDrops(true); }
+
+protected:
+    void mousePressEvent(QMouseEvent *)
+    {
+        QMimeData *mimeData = new QMimeData;
+        mimeData->setData("application/x-dnditemdata", "some data");
+        QDrag *drag = new QDrag(this);
+        drag->setMimeData(mimeData);
+        drag->exec();
+    }
+
+    void dragEnterEvent(QDragEnterEvent *e)
+    {
+        e->accept();
+        _dndEvents.append(QStringLiteral("DragEnter "));
+    }
+    void dragMoveEvent(QDragMoveEvent *e)
+    {
+        e->accept();
+        _dndEvents.append(QStringLiteral("DragMove "));
+        emit releaseMouseButton();
+    }
+    void dragLeaveEvent(QDragLeaveEvent *e)
+    {
+        e->accept();
+        _dndEvents.append(QStringLiteral("DragLeave "));
+    }
+    void dropEvent(QDropEvent *e)
+    {
+        e->accept();
+        _dndEvents.append(QStringLiteral("DropEvent "));
+    }
+
+signals:
+    void releaseMouseButton();
+};
+
+void tst_QWidget_window::tst_dnd_events()
+{
+    // Note: This test is somewhat a hack as testing DnD with qtestlib is not
+    // supported at the moment. The test verifies that we get an expected event
+    // sequence on dnd operation that does not move a mouse. This logic is implemented
+    // in QGuiApplication, so we have to go via QWindowSystemInterface API (QTest::mouse*).
+    const auto platformName = QGuiApplication::platformName().toLower();
+    // The test is known to work with XCB and platforms that use the default dnd
+    // implementation QSimpleDrag (e.g. qnx). Running on XCB should be sufficient to
+    // catch regressions at cross platform code: QGuiApplication::processDrag/Leave().
+    if (platformName != "xcb")
+        return;
+
+    const QString expectedDndEvents = "DragEnter DragMove DropEvent DragEnter DragMove "
+                                      "DropEvent DragEnter DragMove DropEvent ";
+    DnDEventRecorder dndWidget;
+    dndWidget.setGeometry(100, 100, 200, 200);
+    dndWidget.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&dndWidget));
+    QVERIFY(QTest::qWaitForWindowActive(&dndWidget));
+
+    // ### FIXME - QTBUG-35117 ???
+    auto targetCenter = QPoint(dndWidget.width(), dndWidget.height()) / 2;
+    auto targetCenterGlobal = dndWidget.mapToGlobal(targetCenter);
+    QCursor::setPos(targetCenterGlobal);
+    QVERIFY(QTest::qWaitFor([&]() { return QCursor::pos() == targetCenterGlobal; }));
+    QCoreApplication::processEvents(); // clear mouse events generated from cursor
+
+    auto window = dndWidget.window()->windowHandle();
+
+    // Some dnd implementation rely on running internal event loops, so we have to use
+    // the following queued signal hack to simulate mouse clicks in the widget.
+    QObject::connect(&dndWidget, &DnDEventRecorder::releaseMouseButton, this, [=]() {
+        QTest::mouseRelease(window, Qt::LeftButton);
+    }, Qt::QueuedConnection);
+
+    QTest::mousePress(window, Qt::LeftButton);
+    QTest::mousePress(window, Qt::LeftButton);
+    QTest::mousePress(window, Qt::LeftButton);
+
+    QCOMPARE(dndWidget._dndEvents, expectedDndEvents);
+}
 #endif
 
 void tst_QWidget_window::tst_qtbug35600()
@@ -704,6 +799,9 @@ void tst_QWidget_window::tst_resize_count()
         ResizeWidget resize;
         resize.show();
         QVERIFY(QTest::qWaitForWindowExposed(&resize));
+#ifdef Q_OS_WINRT
+        QEXPECT_FAIL("", "Winrt does not support resize", Abort);
+#endif
         QCOMPARE(resize.resizeCount, 1);
         resize.resizeCount = 0;
         QSize size = resize.size();
@@ -901,6 +999,11 @@ void tst_QWidget_window::setWindowState()
     w.setWindowState(state);
     QCOMPARE(w.windowState(), state);
     w.show();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("0", "Winrt windows are maximized by default", Abort);
+    QEXPECT_FAIL("Qt::WindowMinimized", "Winrt windows are maximized by default", Abort);
+    QEXPECT_FAIL("Qt::WindowFullScreen", "Winrt windows are maximized by default", Abort);
+#endif
     QCOMPARE(w.windowState(), state);
     QCOMPARE(w.windowHandle()->windowStates(), state);
     if (!(state & Qt::WindowMinimized))

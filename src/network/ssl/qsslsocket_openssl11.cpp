@@ -125,9 +125,12 @@ void QSslSocketPrivate::ensureCiphersAndCertsLoaded()
 #if defined(Q_OS_WIN)
     HINSTANCE hLib = LoadLibraryW(L"Crypt32");
     if (hLib) {
-        ptrCertOpenSystemStoreW = (PtrCertOpenSystemStoreW)GetProcAddress(hLib, "CertOpenSystemStoreW");
-        ptrCertFindCertificateInStore = (PtrCertFindCertificateInStore)GetProcAddress(hLib, "CertFindCertificateInStore");
-        ptrCertCloseStore = (PtrCertCloseStore)GetProcAddress(hLib, "CertCloseStore");
+        ptrCertOpenSystemStoreW = reinterpret_cast<PtrCertOpenSystemStoreW>(
+            reinterpret_cast<QFunctionPointer>(GetProcAddress(hLib, "CertOpenSystemStoreW")));
+        ptrCertFindCertificateInStore = reinterpret_cast<PtrCertFindCertificateInStore>(
+            reinterpret_cast<QFunctionPointer>(GetProcAddress(hLib, "CertFindCertificateInStore")));
+        ptrCertCloseStore = reinterpret_cast<PtrCertCloseStore>(
+            reinterpret_cast<QFunctionPointer>(GetProcAddress(hLib, "CertCloseStore")));
         if (!ptrCertOpenSystemStoreW || !ptrCertFindCertificateInStore || !ptrCertCloseStore)
             qCWarning(lcSsl, "could not resolve symbols in crypt32 library"); // should never happen
     } else {
@@ -245,7 +248,7 @@ void QSslSocketBackendPrivate::continueHandshake()
         // we could not agree -> be conservative and use HTTP/1.1
         configuration.nextNegotiatedProtocol = QByteArrayLiteral("http/1.1");
     } else {
-        const unsigned char *proto = 0;
+        const unsigned char *proto = nullptr;
         unsigned int proto_len = 0;
 
         q_SSL_get0_alpn_selected(ssl, &proto, &proto_len);

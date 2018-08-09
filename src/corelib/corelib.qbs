@@ -243,7 +243,8 @@ QtModuleProject {
             if (qbs.targetOS.contains("darwin")) {
                 frameworks.push("CoreFoundation", "Foundation");
                 if (qbs.targetOS.contains("macos")) {
-                    frameworks.push("AppKit", "CoreServices", "DiskArbitration", "IOKit");
+                    frameworks.push("AppKit", "CoreServices", "DiskArbitration", "IOKit",
+                                    "Security");
                 } else {
                     frameworks.push("MobileCoreServices");
                     if (qbs.targetOS.containsAny(["ios", "tvos"]))

@@ -59,7 +59,7 @@
 #endif
 #include "qwindowsinputcontext.h"
 #include "qwindowskeymapper.h"
-#ifndef QT_NO_ACCESSIBILITY
+#if QT_CONFIG(accessibility)
 #  include "uiautomation/qwindowsuiaaccessibility.h"
 #endif
 
@@ -133,6 +133,7 @@ QT_BEGIN_NAMESPACE
 
 struct QWindowsIntegrationPrivate
 {
+    Q_DISABLE_COPY(QWindowsIntegrationPrivate)
     explicit QWindowsIntegrationPrivate(const QStringList &paramList);
     ~QWindowsIntegrationPrivate();
 
@@ -150,7 +151,7 @@ struct QWindowsIntegrationPrivate
     QScopedPointer<QWindowsStaticOpenGLContext> m_staticOpenGLContext;
 #endif // QT_NO_OPENGL
     QScopedPointer<QPlatformInputContext> m_inputContext;
-#ifndef QT_NO_ACCESSIBILITY
+#if QT_CONFIG(accessibility)
    QWindowsUiaAccessibility m_accessibility;
 #endif
     QWindowsServices m_services;
@@ -184,7 +185,7 @@ static inline unsigned parseOptions(const QStringList &paramList,
                                     QtWindows::ProcessDpiAwareness *dpiAwareness)
 {
     unsigned options = 0;
-    foreach (const QString &param, paramList) {
+    for (const QString &param : paramList) {
         if (param.startsWith(QLatin1String("fontengine="))) {
             if (param.endsWith(QLatin1String("freetype"))) {
                 options |= QWindowsIntegration::FontDatabaseFreeType;
@@ -212,6 +213,8 @@ static inline unsigned parseOptions(const QStringList &paramList,
             options |= QWindowsIntegration::AlwaysUseNativeMenus;
         } else if (param == QLatin1String("menus=none")) {
             options |= QWindowsIntegration::NoNativeMenus;
+        } else if (param == QLatin1String("nowmpointer")) {
+            options |= QWindowsIntegration::DontUseWMPointer;
         } else {
             qWarning() << "Unknown option" << param;
         }
@@ -230,8 +233,13 @@ QWindowsIntegrationPrivate::QWindowsIntegrationPrivate(const QStringList &paramL
     QtWindows::ProcessDpiAwareness dpiAwareness = QtWindows::ProcessPerMonitorDpiAware;
     m_options = parseOptions(paramList, &tabletAbsoluteRange, &dpiAwareness);
     QWindowsFontDatabase::setFontOptions(m_options);
-    if (tabletAbsoluteRange >= 0)
-        m_context.setTabletAbsoluteRange(tabletAbsoluteRange);
+
+    if (!m_context.initPointer(m_options)) {
+        m_context.initTablet(m_options);
+        if (tabletAbsoluteRange >= 0)
+            m_context.setTabletAbsoluteRange(tabletAbsoluteRange);
+    }
+
     if (!dpiAwarenessSet) { // Set only once in case of repeated instantiations of QGuiApplication.
         if (!QCoreApplication::testAttribute(Qt::AA_PluginApplication)) {
             m_context.setProcessDpiAwareness(dpiAwareness);
@@ -248,8 +256,7 @@ QWindowsIntegrationPrivate::QWindowsIntegrationPrivate(const QStringList &paramL
 
 QWindowsIntegrationPrivate::~QWindowsIntegrationPrivate()
 {
-    if (m_fontDatabase)
-        delete m_fontDatabase;
+    delete m_fontDatabase;
 }
 
 QWindowsIntegration *QWindowsIntegration::m_instance = nullptr;
@@ -560,7 +567,7 @@ QPlatformInputContext * QWindowsIntegration::inputContext() const
     return d->m_inputContext.data();
 }
 
-#ifndef QT_NO_ACCESSIBILITY
+#if QT_CONFIG(accessibility)
 QPlatformAccessibility *QWindowsIntegration::accessibility() const
 {
     return &d->m_accessibility;

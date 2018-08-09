@@ -8,6 +8,7 @@ Project {
         "testDetached",
         "testExitCodes",
         "testForwarding",
+        "testForwardingHelper",
         "testGuiProcess",
         "testProcessCrash",
         "testProcessDeadWhileReading",

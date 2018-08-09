@@ -1940,11 +1940,11 @@ QRenderRule QStyleSheetStyle::renderRule(const QObject *obj, const QStyleOption 
                     break;
                 case QTabBar::RoundedEast:
                 case QTabBar::TriangularEast:
-                    extraClass |= PseudoClass_Left;
+                    extraClass |= PseudoClass_Right;
                     break;
                 case QTabBar::RoundedWest:
                 case QTabBar::TriangularWest:
-                    extraClass |= PseudoClass_Right;
+                    extraClass |= PseudoClass_Left;
                     break;
                 default:
                     break;
@@ -1977,11 +1977,11 @@ QRenderRule QStyleSheetStyle::renderRule(const QObject *obj, const QStyleOption 
                     break;
                 case QTabBar::RoundedEast:
                 case QTabBar::TriangularEast:
-                    extraClass |= PseudoClass_Left;
+                    extraClass |= PseudoClass_Right;
                     break;
                 case QTabBar::RoundedWest:
                 case QTabBar::TriangularWest:
-                    extraClass |= PseudoClass_Right;
+                    extraClass |= PseudoClass_Left;
                     break;
                 default:
                     break;
@@ -2925,10 +2925,7 @@ void QStyleSheetStyle::unpolish(QWidget *w)
     styleSheetCaches->renderRulesCache.remove(w);
     styleSheetCaches->styleSheetCache.remove(w);
     unsetPalette(w);
-    w->setProperty("_q_stylesheet_minw", QVariant());
-    w->setProperty("_q_stylesheet_minh", QVariant());
-    w->setProperty("_q_stylesheet_maxw", QVariant());
-    w->setProperty("_q_stylesheet_maxh", QVariant());
+    setGeometry(w);
     w->setAttribute(Qt::WA_StyleSheetTarget, false);
     w->setAttribute(Qt::WA_StyleSheet, false);
     QObject::disconnect(w, 0, this, 0);

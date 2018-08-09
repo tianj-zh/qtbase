@@ -54,7 +54,6 @@
 #include <QtGui/qscreen.h>
 
 #include <QtPlatformHeaders/qxcbwindowfunctions.h>
-#include <QtPlatformHeaders/qxcbintegrationfunctions.h>
 #include <QtPlatformHeaders/qxcbscreenfunctions.h>
 
 #include <stdio.h>
@@ -104,50 +103,6 @@ static inline QXcbSystemTrayTracker *systemTrayTracker(const QScreen *s)
         return nullptr;
 
     return static_cast<const QXcbScreen *>(s->handle())->connection()->systemTrayTracker();
-}
-
-bool QXcbNativeInterface::systemTrayAvailable(const QScreen *screen) const
-{
-    return systemTrayTracker(screen);
-}
-
-bool QXcbNativeInterface::requestSystemTrayWindowDock(const QWindow *window)
-{
-    return QXcbWindow::requestSystemTrayWindowDockStatic(window);
-}
-
-QRect QXcbNativeInterface::systemTrayWindowGlobalGeometry(const QWindow *window)
-{
-    return QXcbWindow::systemTrayWindowGlobalGeometryStatic(window);
-}
-
-xcb_window_t QXcbNativeInterface::locateSystemTray(xcb_connection_t *conn, const QXcbScreen *screen)
-{
-    if (m_sysTraySelectionAtom == XCB_ATOM_NONE) {
-        const QByteArray net_sys_tray = QString::fromLatin1("_NET_SYSTEM_TRAY_S%1").arg(screen->screenNumber()).toLatin1();
-        auto intern_r = Q_XCB_REPLY_UNCHECKED(xcb_intern_atom, conn,
-                                              true, net_sys_tray.length(), net_sys_tray);
-        if (!intern_r)
-            return XCB_WINDOW_NONE;
-
-        m_sysTraySelectionAtom = intern_r->atom;
-    }
-
-    auto sel_owner_r = Q_XCB_REPLY_UNCHECKED(xcb_get_selection_owner, conn, m_sysTraySelectionAtom);
-    if (!sel_owner_r)
-        return XCB_WINDOW_NONE;
-
-    return sel_owner_r->owner;
-}
-
-bool QXcbNativeInterface::systrayVisualHasAlphaChannel()
-{
-    return QXcbConnection::xEmbedSystemTrayVisualHasAlphaChannel();
-}
-
-void QXcbNativeInterface::setParentRelativeBackPixmap(QWindow *window)
-{
-    QXcbWindow::setParentRelativeBackPixmapStatic(window);
 }
 
 void *QXcbNativeInterface::nativeResourceForIntegration(const QByteArray &resourceString)
@@ -370,18 +325,6 @@ QFunctionPointer QXcbNativeInterface::platformFunction(const QByteArray &functio
 
     if (function == QXcbWindowFunctions::setWmWindowIconTextIdentifier())
         return QFunctionPointer(QXcbWindowFunctions::SetWmWindowIconText(QXcbWindow::setWindowIconTextStatic));
-
-    if (function == QXcbWindowFunctions::setParentRelativeBackPixmapIdentifier())
-        return QFunctionPointer(QXcbWindowFunctions::SetParentRelativeBackPixmap(QXcbWindow::setParentRelativeBackPixmapStatic));
-
-    if (function == QXcbWindowFunctions::requestSystemTrayWindowDockIdentifier())
-        return QFunctionPointer(QXcbWindowFunctions::RequestSystemTrayWindowDock(QXcbWindow::requestSystemTrayWindowDockStatic));
-
-    if (function == QXcbWindowFunctions::systemTrayWindowGlobalGeometryIdentifier())
-        return QFunctionPointer(QXcbWindowFunctions::SystemTrayWindowGlobalGeometry(QXcbWindow::systemTrayWindowGlobalGeometryStatic));
-
-    if (function == QXcbIntegrationFunctions::xEmbedSystemTrayVisualHasAlphaChannelIdentifier())
-        return QFunctionPointer(QXcbIntegrationFunctions::XEmbedSystemTrayVisualHasAlphaChannel(QXcbConnection::xEmbedSystemTrayVisualHasAlphaChannel));
 
     if (function == QXcbWindowFunctions::visualIdIdentifier()) {
         return QFunctionPointer(QXcbWindowFunctions::VisualId(QXcbWindow::visualIdStatic));

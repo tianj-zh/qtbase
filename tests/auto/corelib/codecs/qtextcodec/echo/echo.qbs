@@ -1,9 +1,8 @@
 import qbs
 
 QtAutotestHelperApp {
-    destinationDirectory: project.buildDirectory + "/qtextcodectest/echo"
+    targetName: "echo_helper"
+    installSuffix: ""
     Depends { name: "Qt.core" }
-    files: [
-        "main.cpp",
-    ]
+    files: "main.cpp"
 }

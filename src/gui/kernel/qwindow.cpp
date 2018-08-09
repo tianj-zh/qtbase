@@ -2605,14 +2605,14 @@ void QWindowPrivate::maybeQuitOnLastWindowClosed()
     }
 }
 
-QWindow *QWindowPrivate::topLevelWindow() const
+QWindow *QWindowPrivate::topLevelWindow(QWindow::AncestorMode mode) const
 {
     Q_Q(const QWindow);
 
     QWindow *window = const_cast<QWindow *>(q);
 
     while (window) {
-        QWindow *parent = window->parent(QWindow::IncludeTransients);
+        QWindow *parent = window->parent(mode);
         if (!parent)
             break;
 
@@ -2840,7 +2840,7 @@ void QWindow::setVulkanInstance(QVulkanInstance *instance)
 }
 
 /*!
-    \return the associrated Vulkan instance or \c null if there is none.
+    \return the associated Vulkan instance or \c null if there is none.
  */
 QVulkanInstance *QWindow::vulkanInstance() const
 {

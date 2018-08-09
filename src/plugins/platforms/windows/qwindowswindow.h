@@ -59,7 +59,7 @@ class QDebug;
 
 struct QWindowsGeometryHint
 {
-    QWindowsGeometryHint() {}
+    QWindowsGeometryHint() = default;
     explicit QWindowsGeometryHint(const QWindow *w, const QMargins &customMargins);
     static QMargins frame(DWORD style, DWORD exStyle);
     static bool handleCalculateSize(const QMargins &customMargins, const MSG &msg, LRESULT *result);
@@ -120,6 +120,7 @@ struct QWindowsWindowData
 
 class QWindowsBaseWindow : public QPlatformWindow
 {
+    Q_DISABLE_COPY(QWindowsBaseWindow)
 public:
     explicit QWindowsBaseWindow(QWindow *window) : QPlatformWindow(window) {}
 
@@ -215,16 +216,15 @@ public:
         WithinCreate = 0x20000,
         WithinMaximize = 0x40000,
         MaximizeToFullScreen = 0x80000,
-        InputMethodDisabled = 0x100000,
-        Compositing = 0x200000,
-        HasBorderInFullScreen = 0x400000,
-        WithinDpiChanged = 0x800000,
-        VulkanSurface = 0x1000000,
-        ResizeMoveActive = 0x2000000
+        Compositing = 0x100000,
+        HasBorderInFullScreen = 0x200000,
+        WithinDpiChanged = 0x400000,
+        VulkanSurface = 0x800000,
+        ResizeMoveActive = 0x1000000
     };
 
     QWindowsWindow(QWindow *window, const QWindowsWindowData &data);
-    ~QWindowsWindow();
+    ~QWindowsWindow() override;
 
     void initialize() override;
 
@@ -431,7 +431,7 @@ inline QWindowsWindow *QWindowsWindow::windowsWindowOf(const QWindow *w)
 
 void *QWindowsWindow::userDataOf(HWND hwnd)
 {
-    return (void *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    return reinterpret_cast<void *>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
 }
 
 void QWindowsWindow::setUserDataOf(HWND hwnd, void *ud)
