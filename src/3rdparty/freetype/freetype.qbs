@@ -24,7 +24,6 @@ Project {
         Depends { name: "qt_libpng" }
         Depends { name: "qt_zlib" }
         Depends { name: "cpp" }
-        cpp.enableExceptions: false
         cpp.enableRtti: false
         cpp.includePaths: {
             var result = ["include"];

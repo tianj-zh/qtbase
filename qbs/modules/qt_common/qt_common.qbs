@@ -20,6 +20,7 @@ Module {
             return "c99";
     }
     cpp.defines: "QT_NO_NARROWING_CONVERSIONS_IN_CONNECT"
+    cpp.enableExceptions: false
     Properties {
         condition: !cpp.enableExceptions
         cpp.defines: outer.concat("QT_NO_EXCEPTIONS")

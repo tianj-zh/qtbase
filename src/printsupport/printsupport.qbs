@@ -35,7 +35,6 @@ QtModuleProject {
         Depends { name: "Qt.gui_private" }
         Depends { name: "Qt.widgets_private" }
 
-        cpp.enableExceptions: true
         cpp.includePaths: {
             var result = base.concat(project.includePaths);
             result.push(".");

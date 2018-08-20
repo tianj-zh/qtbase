@@ -51,7 +51,6 @@ QtModuleProject {
             condition: QtGuiConfig.angle
         }
 
-        cpp.enableExceptions: true
         cpp.includePaths: project.includePaths.concat(base)
         cpp.defines: base.concat([
             "QT_NO_FOREACH",

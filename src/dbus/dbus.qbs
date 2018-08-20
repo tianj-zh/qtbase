@@ -77,7 +77,6 @@ QtModuleProject {
             qbs.installDir: moduleInstallDir
         }
 
-        cpp.enableExceptions: true
         cpp.includePaths: project.includePaths.concat(base)
         cpp.defines: {
             var defines = base.concat([

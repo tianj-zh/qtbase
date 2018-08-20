@@ -164,6 +164,7 @@ QtModuleProject {
 
         Depends { name: "qt_doubleconversion"; condition: QtCorePrivateConfig.doubleconversion }
 
+        cpp.enableExceptions: true
         cpp.cxxFlags: {
             var flags = base;
             if (qbs.targetOS.contains("integrity"))
