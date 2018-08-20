@@ -4,9 +4,6 @@ import qbs.ModUtils
 import "qlalr.js" as qlalr
 
 Project {
-    references: [
-        "examples",
-    ]
     QtHostTool {
         name: "qlalr"
         toolFileTag: "qt.qlalr-tool"
