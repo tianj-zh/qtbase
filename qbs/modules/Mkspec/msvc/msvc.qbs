@@ -1,5 +1,6 @@
 import qbs
 import qbs.FileInfo
+import qbs.Utilities
 
 Module {
     Depends { name: "cpp" }
@@ -22,6 +23,15 @@ Module {
             }
         }
         return flags;
+    }
+
+    cpp.defines: {
+        var defines = [];
+        // MSVC 2017 15.8+ fixed std::aligned_storage but compilation fails without
+        // this flag since the fix breaks binary compatibility.
+        if (Utilities.versionCompare(cpp.compilerVersion, "19.14") > 0)
+            defines.push("_ENABLE_EXTENDED_ALIGNED_STORAGE");
+        return defines;
     }
     property string windowsKitDir: cpp.buildEnv["WindowsSdkDir"]
     property string windowsKitVersion: {
