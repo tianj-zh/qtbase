@@ -7,7 +7,7 @@ QtHostTool {
     createQbsModule: true
     useBootstrapLib: true
 
-    Depends { name: "QtCoreHeaders" }
+    Depends { name: "Qt.core_headers" }
 
     cpp.defines: base.concat(["QT_NO_COMPRESS"])
 

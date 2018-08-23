@@ -19,7 +19,7 @@ QtModuleProject {
             project.qtbaseShadowDir + "/src/gui/qtgui-config.h",
             project.qtbaseShadowDir + "/src/gui/qtgui-config_p.h",
         ]
-        Depends { name: "QtCoreHeaders" }
+        Depends { name: "Qt.core_headers" }
     }
 
     QtPrivateModule {

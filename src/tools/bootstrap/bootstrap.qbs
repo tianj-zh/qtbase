@@ -47,14 +47,14 @@ QtModuleProject {
         // Ignore debug_and_release for host tools.
         multiplexByQbsProperties: base.filter(function(name) { return name !== "buildVariants"; })
 
-        Depends { name: "QtCoreHeaders" }
-        Depends { name: "QtXmlHeaders" }
+        Depends { name: "Qt.core_headers" }
+        Depends { name: "Qt.xml_headers" }
         Depends { name: "cpp" }
         Depends { name: "qt_zlib" }
 
         cpp.includePaths: project.includePaths.concat(
-            QtCoreHeaders.includePaths,
-            QtXmlHeaders.includePaths,
+            Qt.core_headers.includePaths,
+            Qt.xml_headers.includePaths,
             project.qtbaseDir + "/mkspecs/" + Qt.global.privateConfig.hostMkspec)
         commonCppDefines: [
             "QT_BOOTSTRAPPED",
@@ -201,15 +201,15 @@ QtModuleProject {
 
         Export {
             Depends { name: "cpp" }
-            Depends { name: "QtCoreHeaders" }
-            Depends { name: "QtXmlHeaders" }
+            Depends { name: "Qt.core_headers" }
+            Depends { name: "Qt.xml_headers" }
             prefixMapping: base.concat([{
                 prefix: project.qtbaseShadowDir,
                 replacement: qbs.installPrefix
             }])
             cpp.includePaths: project.includePaths.concat(
-                QtCoreHeaders.includePaths,
-                QtXmlHeaders.includePaths,
+                Qt.core_headers.includePaths,
+                Qt.xml_headers.includePaths,
                 project.qtbaseDir + "/mkspecs/" + Qt.global.privateConfig.hostMkspec)
             cpp.cxxLanguageVersion: "c++11"
 

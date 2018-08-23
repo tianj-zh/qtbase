@@ -2,10 +2,9 @@ import qbs
 
 QtModuleProject {
     name: "QtPlatformHeaders"
-    simpleName: "platformheaders"
+    simpleName: "platform"
 
     QtHeaders {
-        name: "QtPlatformHeaders"
     }
 }
 /*

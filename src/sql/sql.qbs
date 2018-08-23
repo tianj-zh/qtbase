@@ -17,7 +17,7 @@ QtModuleProject {
             project.qtbaseShadowDir + "/src/sql/qtsql-config.h",
             project.qtbaseShadowDir + "/src/sql/qtsql-config_p.h",
         ]
-        Depends { name: "QtCoreHeaders" }
+        Depends { name: "Qt.core_headers" }
     }
 
     QtPrivateModule {

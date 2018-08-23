@@ -47,7 +47,7 @@ QtModuleProject {
             name: "Qt.linuxaccessibility_support_private"
             required: false
         }
-        Depends { name: "QtPlatformHeaders" }
+        Depends { name: "Qt.platform_headers" }
 
         Depends { name: "Xcb_xlib"; condition: QtGuiPrivateConfig.xcb_xlib }
         Depends { name: "X11sm"; condition: QtGuiPrivateConfig.xcb_sm }

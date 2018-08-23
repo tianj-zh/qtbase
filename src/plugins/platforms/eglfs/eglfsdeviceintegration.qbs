@@ -23,7 +23,7 @@ QtModule {
     Depends { name: "Qt.input_support_private"; required: false }
     Depends { name: "Qt.platformcompositor_support_private"; required: false }
     Depends { name: "Egl" }
-    Depends { name: "QtPlatformHeaders" }
+    Depends { name: "Qt.platform_headers" }
     Export {
         Depends { name: "Qt.egl_support_private" }
     }

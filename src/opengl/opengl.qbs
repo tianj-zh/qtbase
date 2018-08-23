@@ -9,7 +9,7 @@ QtModuleProject {
     })
 
     QtHeaders {
-        Depends { name: "QtWidgetsHeaders" }
+        Depends { name: "Qt.widgets_headers" }
     }
 
     QtPrivateModule {

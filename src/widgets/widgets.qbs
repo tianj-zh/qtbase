@@ -25,7 +25,7 @@ QtModuleProject {
             project.qtbaseShadowDir + "/src/widgets/qtwidgets-config.h",
             project.qtbaseShadowDir + "/src/widgets/qtwidgets-config_p.h",
         ]
-        Depends { name: "QtGuiHeaders" }
+        Depends { name: "Qt.gui_headers" }
     }
 
     QtPrivateModule {
@@ -43,7 +43,7 @@ QtModuleProject {
 
         Depends { name: "Qt.core_private" }
         Depends { name: "Qt.gui_private" }
-        Depends { name: "QtPlatformHeaders" }
+        Depends { name: "Qt.platform_headers" }
         Depends { name: "uic" }
         Depends { name: project.headersName }
 

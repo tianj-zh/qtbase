@@ -13,7 +13,7 @@ QtModuleProject {
             "qtconcurrentmap.h": ["QtConcurrentMap"],
             "qtconcurrentrun.h": ["QtConcurrentRun"],
         })
-        Depends { name: "QtCoreHeaders" }
+        Depends { name: "Qt.core_headers" }
     }
 
     QtPrivateModule {

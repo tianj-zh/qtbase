@@ -17,7 +17,7 @@ QtModuleProject {
             project.qtbaseShadowDir + "/src/network/qtnetwork-config.h",
             project.qtbaseShadowDir + "/src/network/qtnetwork-config_p.h",
         ]
-        Depends { name: "QtCoreHeaders" }
+        Depends { name: "Qt.core_headers" }
     }
 
     QtPrivateModule {

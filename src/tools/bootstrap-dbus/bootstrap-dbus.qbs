@@ -24,15 +24,15 @@ QtModuleProject {
         multiplexByQbsProperties: base.filter(function(name) { return name !== "buildVariants"; })
 
         Export {
-            Depends { name: "QtDBusHeaders" }
+            Depends { name: "Qt.dbus_headers" }
             Depends { name: "cpp" }
-            cpp.includePaths: project.includePaths.concat(QtDBusHeaders.includePaths)
+            cpp.includePaths: project.includePaths.concat(Qt.dbus_headers.includePaths)
         }
 
         Depends { name: "Qt.bootstrap_private" }
-        Depends { name: "QtDBusHeaders" }
+        Depends { name: "Qt.dbus_headers" }
 
-        cpp.includePaths: base.concat(project.includePaths, QtDBusHeaders.includePaths)
+        cpp.includePaths: base.concat(project.includePaths, Qt.dbus_headers.includePaths)
         cpp.defines: base.concat("QT_NO_FOREACH", "QT_NO_CAST_FROM_ASCII")
         cpp.cxxFlags: base.concat(Qt.global.privateConfig.dbus_host_cflags)
 

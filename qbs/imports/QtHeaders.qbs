@@ -19,6 +19,9 @@ Product {
     qbs.profiles: ["qt_targetProfile"]
     aggregate: false
 
+    Depends { name: "Exporter.qbs" }
+    Exporter.qbs.fileName: project.simpleName + "_headers.qbs"
+
     Group {
         fileTagsFilter: ["hpp_public", "hpp_forwarding", "hpp_module", "hpp_depends"]
         qbs.install: product.install
@@ -40,6 +43,12 @@ Product {
                                            "qpa")
     }
 
+    Group {
+        fileTagsFilter: ["Exporter.qbs.module"]
+        qbs.install: true
+        qbs.installDir: FileInfo.joinPaths("lib/qbs/modules/Qt", project.simpleName + "_headers")
+    }
+
     property string baseDir: sourceDirectory
     property stringList shadowBuildFiles: []
     files: [baseDir + "/*.h", baseDir + "/**/*.h"].concat(
@@ -49,5 +58,6 @@ Product {
     Export {
         property stringList includePaths: project.includePaths
         property stringList publicIncludePaths: project.publicIncludePaths
+        prefixMapping: [{prefix: project.buildDirectory, replacement: qbs.installPrefix}]
     }
 }

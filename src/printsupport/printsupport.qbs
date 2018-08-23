@@ -17,7 +17,7 @@ QtModuleProject {
             project.qtbaseShadowDir + "/src/printsupport/qtprintsupport-config.h",
             project.qtbaseShadowDir + "/src/printsupport/qtprintsupport-config_p.h",
         ]
-        Depends { name: "QtCoreHeaders" }
+        Depends { name: "Qt.core_headers" }
     }
 
     QtPrivateModule {
