@@ -7,12 +7,13 @@ Product {
     condition: project.conditionFunction(qbs)
     property bool install: true
     property bool consideredBySync: true
+    property bool syncable: true
     property var config: project.config
     property var privateConfig: project.privateConfig
 
     Depends { name: "Qt.global" }
 
-    Depends { name: "sync" }
+    Depends { name: "sync"; condition: syncable }
     sync.module: project.name
 
     multiplexByQbsProperties: ["profiles"]
@@ -23,12 +24,14 @@ Product {
     Exporter.qbs.fileName: project.simpleName + "_headers.qbs"
 
     Group {
+        condition: syncable
         fileTagsFilter: ["hpp_public", "hpp_forwarding", "hpp_module", "hpp_depends"]
         qbs.install: product.install
         qbs.installDir: sync.prefix + '/' + sync.module
     }
 
     Group {
+        condition: syncable
         fileTagsFilter: "hpp_private"
         qbs.install: product.install
         qbs.installDir: sync.prefix + '/' + sync.module + "/"
@@ -37,6 +40,7 @@ Product {
     }
 
     Group {
+        condition: syncable
         fileTagsFilter: "hpp_qpa"
         qbs.install: product.install
         qbs.installDir: FileInfo.joinPaths(sync.prefix, sync.module, project.version, sync.module,
@@ -51,9 +55,13 @@ Product {
 
     property string baseDir: sourceDirectory
     property stringList shadowBuildFiles: []
-    files: [baseDir + "/*.h", baseDir + "/**/*.h"].concat(
-               project.isShadowBuild ? shadowBuildFiles : [])
-    excludeFiles: [baseDir + "/doc/**"]
+
+    Properties {
+        condition: syncable
+        files: [baseDir + "/*.h", baseDir + "/**/*.h"].concat(
+                   project.isShadowBuild ? shadowBuildFiles : [])
+        excludeFiles: [baseDir + "/doc/**"]
+    }
 
     Export {
         property stringList includePaths: project.includePaths
