@@ -64,22 +64,9 @@ Project {
     readonly property var versionParts: version.split('.').map(function(part) { return parseInt(part); })
     property string qtbaseDir: path
 
-    Product {
-        name: "extra installs"
-        multiplexByQbsProperties: ["profiles"]
-        qbs.profiles: ["qt_hostProfile"]
-        Depends { name: "cpp" }
-        Group {
-            files: [
-                FileInfo.joinPaths(project.qtbaseShadowDir, "bin", "qmake" + cpp.executableSuffix),
-            ]
-            qbs.install: true
-            qbs.installDir: "bin"
-        }
-    }
-
     references: [
         // "examples/examples.qbs",
+        "qmake/qmake.qbs",
         "src/src.qbs",
         "tests/tests.qbs",
     ]
