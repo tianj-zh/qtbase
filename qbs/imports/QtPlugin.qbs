@@ -30,7 +30,7 @@ QtProduct {
     aggregate: false
     Group {
         fileTagsFilter: product.type
-        qbs.install: !Qt.global.config.staticBuild
+        qbs.install: true
         qbs.installDir: product.installDir
         qbs.installSourceBase: product.buildDirectory
     }
