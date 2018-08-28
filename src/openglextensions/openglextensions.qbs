@@ -15,7 +15,7 @@ QtModuleProject {
     }
 
     QtModule {
-        type: base.map(function(t) { if (t === "dynamiclibrary") return "staticlibrary"; })
+        type: base.map(function(t) { if (t === "dynamiclibrary") return "staticlibrary"; return t; })
         Export {
             Depends { name: "cpp" }
             Depends { name: "Qt.widgets" }
