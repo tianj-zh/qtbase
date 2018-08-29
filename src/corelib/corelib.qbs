@@ -152,6 +152,7 @@ QtModuleProject {
 
         Depends { name: "Glib"; condition: QtCorePrivateConfig.glib }
         Depends { name: "Iconv"; condition: QtCorePrivateConfig.gnu_libiconv }
+        Depends { name: "Icu"; condition: QtCorePrivateConfig.icu }
         Depends { name: "Journald"; condition: QtCorePrivateConfig.journald }
         Depends { name: "Libdl"; condition: QtCorePrivateConfig.dlopen }
         Depends {
@@ -175,8 +176,6 @@ QtModuleProject {
         }
         cpp.defines: {
             var defines = [];
-            if (QtCorePrivateConfig.icu)
-                defines.push("QT_USE_ICU");
             if (qbs.targetOS.contains("unix")) {
                 if (QtCorePrivateConfig.poll_poll)
                     defines.push("QT_HAVE_POLL");
@@ -215,22 +214,6 @@ QtModuleProject {
                     dynamicLibraries.push("version");
                     dynamicLibraries.push("winmm");
                     dynamicLibraries.push("ws2_32");
-                }
-            }
-            if (QtCorePrivateConfig.icu) {
-                if (qbs.targetOS.contains("windows")) {
-                    if (Qt.global.config.staticBuild) {
-                        if (qbs.enableDebugCode) {
-                            dynamicLibraries.push("sicuind", "sicuucd", "sicudtd");
-                        } else {
-                            dynamicLibraries.push("sicuin", "sicuuc", "sicudt");
-                        }
-                    } else {
-                        dynamicLibraries.push("icuin", "icuuc", "icudt");
-
-                    }
-                } else {
-                    dynamicLibraries.push("icui18n", "icuuc", "icudata");
                 }
             }
             if (QtCorePrivateConfig.slog2)
