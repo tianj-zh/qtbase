@@ -315,7 +315,6 @@ QtModuleProject {
 
         Group {
             name: "mkspecs"
-            condition: !multiplexed
             files: project.qtbaseDir + "/mkspecs/**/*"
             fileTags: []
             qbs.install: true
@@ -325,7 +324,6 @@ QtModuleProject {
 
         Group {
             name: "configure-generated pri files"
-            condition: !multiplexed
             prefix: project.qtbaseShadowDir + "/mkspecs/"
             files: [
                 "qconfig.pri",
