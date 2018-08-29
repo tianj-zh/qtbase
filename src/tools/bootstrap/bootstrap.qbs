@@ -109,6 +109,7 @@ QtModuleProject {
                 "io/qiodevice.cpp",
                 "io/qloggingcategory.cpp",
                 "io/qloggingregistry.cpp",
+                "io/qsavefile.cpp",
                 "io/qstandardpaths.cpp",
                 "io/qtemporaryfile.cpp",
                 "kernel/qcoreapplication.cpp",
