@@ -27,6 +27,7 @@ QtProduct {
     Depends { name: "qt_common_libs_plugins" }
 
     Depends { name: "qt_module_pri" }
+    Depends { name: "qt_prl" }
 
 // TODO: For Windows: qt_targets.prf
 
