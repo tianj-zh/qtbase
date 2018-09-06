@@ -11,9 +11,8 @@ Project {
             Depends { name: "system_pcre2"; condition: !useBundledPcre2 }
         }
     }
-    QtProduct {
+    QtStaticLibrary {
         name: "bundled_pcre2"
-        type: ["staticlibrary"]
         commonCppDefines: ["PCRE2_CODE_UNIT_WIDTH=16", "PCRE2_STATIC"]
         cpp.defines: {
             var result = base.concat("HAVE_CONFIG_H");
@@ -21,7 +20,6 @@ Project {
                 result.push("PCRE2_DISABLE_JIT");
             return result;
         }
-        cpp.enableExceptions: false
         cpp.enableRtti: false
         cpp.warningLevel: "none"
         Group {
