@@ -48,6 +48,18 @@ Project {
             qbs.installSourceBase: actualProjectSourceDirectory + "/qbs/"
             qbs.installDir: "lib/qbs"
         }
+        Group {
+            files: [
+                project.qtbaseShadowDir + "/qbs/imports/QtGlobalConfig/QtGlobalConfig.js",
+                project.qtbaseShadowDir
+                    + "/qbs/imports/QtGlobalPrivateConfig/QtGlobalPrivateConfig.js",
+                project.qtbaseShadowDir
+                    + "/qbs/imports/QtMultiplexConfig/multiplexconfig.js",
+            ]
+            qbs.install: true
+            qbs.installSourceBase: project.qtbaseShadowDir + "/qbs/imports/"
+            qbs.installDir: "lib/qbs/imports"
+        }
 
         property bool consideredBySync: true
         property var config: QtGlobalConfig
