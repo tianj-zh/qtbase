@@ -85,6 +85,7 @@ enum WindowsEventType // Simplify event types
     MouseWheelEvent = MouseEventFlag + 2,
     CursorEvent = MouseEventFlag + 3,
     TouchEvent = TouchEventFlag + 1,
+    PointerEvent = TouchEventFlag + 2,
     NonClientMouseEvent = NonClientEventFlag + MouseEventFlag + 1,
     NonClientHitTest = NonClientEventFlag + 2,
     KeyEvent = KeyEventFlag + 1,
@@ -262,6 +263,8 @@ inline QtWindows::WindowsEventType windowsEventType(UINT message, WPARAM wParamI
     if ((message >= WM_MOUSEFIRST && message <= WM_MOUSELAST)
          || (message >= WM_XBUTTONDOWN && message <= WM_XBUTTONDBLCLK))
         return QtWindows::MouseEvent;
+    if (message >= WM_POINTERUPDATE && message <= WM_POINTERUP)
+        return QtWindows::PointerEvent;
     return QtWindows::UnknownEvent;
 }
 

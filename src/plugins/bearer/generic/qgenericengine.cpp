@@ -79,7 +79,9 @@ using namespace ABI::Windows::Networking::Connectivity;
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <unistd.h>
-#endif
+#endif // Q_OS_WINRT
+
+#ifndef QT_NO_BEARERMANAGEMENT
 
 QT_BEGIN_NAMESPACE
 
@@ -486,3 +488,5 @@ bool QGenericEngine::requiresPolling() const
 }
 
 QT_END_NAMESPACE
+
+#endif // QT_NO_BEARERMANAGEMENT

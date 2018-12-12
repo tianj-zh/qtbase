@@ -276,6 +276,8 @@ Configure::Configure(int& argc, char** argv) : verbose(0)
     dictionary[ "LIBPROXY" ]        = "auto";
     dictionary[ "DBUS" ]            = "auto";
 
+    dictionary[ "BEARERMANAGEMENT" ]   = "yes";
+    
     dictionary[ "STYLE_WINDOWS" ]   = "yes";
     dictionary[ "STYLE_WINDOWSXP" ] = "auto";
     dictionary[ "STYLE_WINDOWSVISTA" ] = "auto";
@@ -883,6 +885,13 @@ void Configure::parseCmdLine()
             cout << "Setting accessibility to NO" << endl;
         }
 
+        else if (configCmdLine.at(i) == "-bearermanagement")
+            dictionary[ "BEARERMANAGEMENT" ] = "yes";
+        else if (configCmdLine.at(i) == "-no-bearermanagement") {
+            dictionary[ "BEARERMANAGEMENT" ] = "no";
+            cout << "Setting bearermanagement to NO" << endl;
+        }
+        
         else if (configCmdLine.at(i) == "-no-sse2")
             dictionary[ "SSE2" ] = "no";
         else if (configCmdLine.at(i) == "-sse2")
@@ -1880,6 +1889,9 @@ bool Configure::displayHelp()
                                                          "which is unsupported.\n");
         desc("ACCESSIBILITY", "yes", "-accessibility",   "Enable accessibility support.\n");
 
+        desc("BEARERMANAGEMENT", "no", "-no-bearermanagement", "Disable bearermanagement support.\n");
+        desc("BEARERMANAGEMENT", "yes", "-bearermanagement",   "Enable bearermanagement support.\n");
+        
         desc(                   "-no-sql-<driver>",     "Disable SQL <driver> entirely, by default none are turned on.");
         desc(                   "-qt-sql-<driver>",     "Enable a SQL <driver> in the Qt Library.");
         desc(                   "-plugin-sql-<driver>", "Enable SQL <driver> as a plugin to be linked to at run time.\n"
@@ -2993,6 +3005,9 @@ void Configure::generateOutputVars()
     if (dictionary[ "ACCESSIBILITY" ] == "yes")
         qtConfig += "accessibility";
 
+    if (dictionary[ "BEARERMANAGEMENT" ] == "yes")
+        qtConfig += "bearermanagement";
+    
     if (!qmakeLibs.isEmpty())
         qmakeVars += "EXTRA_LIBS += " + formatPaths(qmakeLibs);
 
@@ -3779,6 +3794,7 @@ void Configure::generateConfigfiles()
         if (dictionary["FREETYPE"] == "no")          qconfigList += "QT_NO_FREETYPE";
         if (dictionary["HARFBUZZ"] == "no")          qconfigList += "QT_NO_HARFBUZZ";
         if (dictionary["NATIVE_GESTURES"] == "no")   qconfigList += "QT_NO_NATIVE_GESTURES";
+        if (dictionary["BEARERMANAGEMENT"] == "no")  qconfigList += "QT_NO_BEARERMANAGEMENT";
 
         if (dictionary["OPENGL_ES_2"]  == "yes")     qconfigList += "QT_OPENGL_ES";
         if (dictionary["OPENGL_ES_2"]  == "yes")     qconfigList += "QT_OPENGL_ES_2";
@@ -3908,6 +3924,7 @@ void Configure::displayConfig()
     sout << "Using PCH .................." << dictionary[ "PCH" ] << endl;
     sout << "Accessibility support......." << dictionary[ "ACCESSIBILITY" ] << endl;
     sout << "RTTI support................" << dictionary[ "RTTI" ] << endl;
+    sout << "Bearer Management support..." << dictionary[ "BEARERMANAGEMENT" ] << endl;
     sout << "SSE2 support................" << dictionary[ "SSE2" ] << endl;
     sout << "SSE3 support................" << dictionary[ "SSE3" ] << endl;
     sout << "SSSE3 support..............." << dictionary[ "SSSE3" ] << endl;

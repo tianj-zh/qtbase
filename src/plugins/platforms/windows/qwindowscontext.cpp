@@ -165,7 +165,8 @@ QWindowsUser32DLL::QWindowsUser32DLL() :
     registerTouchWindow(0), unregisterTouchWindow(0),
     getTouchInputInfo(0), closeTouchInputHandle(0), setProcessDPIAware(0),
     addClipboardFormatListener(0), removeClipboardFormatListener(0),
-    getDisplayAutoRotationPreferences(0), setDisplayAutoRotationPreferences(0)
+    getDisplayAutoRotationPreferences(0), setDisplayAutoRotationPreferences(0),
+	getPointerPenInfo(0), getPointerType(0)
 {
 }
 
@@ -201,6 +202,16 @@ bool QWindowsUser32DLL::initTouch()
         closeTouchInputHandle = (CloseTouchInputHandle)(library.resolve("CloseTouchInputHandle"));
     }
     return isTouchWindow && registerTouchWindow && unregisterTouchWindow && getTouchInputInfo && closeTouchInputHandle;
+}
+
+bool QWindowsUser32DLL::initPointer()
+{
+    if (QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS8) {
+        QSystemLibrary library(QStringLiteral("user32"));
+        getPointerPenInfo = (GetPointerPenInfo)(library.resolve("GetPointerPenInfo"));
+        getPointerType = (GetPointerType)(library.resolve("GetPointerType"));
+    }
+    return getPointerPenInfo && getPointerType;
 }
 
 /*!
@@ -379,6 +390,16 @@ bool QWindowsContext::initTouch(unsigned integrationOptions)
     QWindowSystemInterface::registerTouchDevice(touchDevice);
 
     d->m_systemInfo |= QWindowsContext::SI_SupportsTouch;
+    return true;
+}
+
+bool QWindowsContext::initPointer()
+{
+#ifndef Q_OS_WINCE
+    if (!QWindowsContext::user32dll.initPointer()) {
+        return false;
+    }
+#endif // !Q_OS_WINCE
     return true;
 }
 
@@ -1125,6 +1146,12 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
         return platformSessionManager()->isInteractionBlocked() ? true : d->m_mouseHandler.translateTouchEvent(platformWindow->window(), hwnd, et, msg, result);
 #else
         return d->m_mouseHandler.translateTouchEvent(platformWindow->window(), hwnd, et, msg, result);
+#endif
+    case QtWindows::PointerEvent:
+#if !defined(Q_OS_WINCE) && !defined(QT_NO_SESSIONMANAGER)
+        return platformSessionManager()->isInteractionBlocked() ? true : d->m_mouseHandler.translatePointerEvent(platformWindow->window(), hwnd, et, msg, result);
+#else
+        return d->m_mouseHandler.translatePointerEvent(platformWindow->window(), hwnd, et, msg, result);
 #endif
     case QtWindows::FocusInEvent: // see QWindowsWindow::requestActivateWindow().
     case QtWindows::FocusOutEvent:

@@ -12,6 +12,8 @@ wince: DEFINES *= QT_LIBINFIX=L"\"\\\"$${QT_LIBINFIX}\\\"\""
 
 DEFINES *= QT_NO_CAST_FROM_ASCII
 
+DEFINES += "WINVER=0x0602"
+
 contains(QT_CONFIG, directwrite) {
     SOURCES += $$PWD/qwindowsfontenginedirectwrite.cpp
     HEADERS += $$PWD/qwindowsfontenginedirectwrite.h

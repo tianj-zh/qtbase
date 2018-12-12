@@ -79,12 +79,15 @@ struct QWindowsUser32DLL
     QWindowsUser32DLL();
     inline void init();
     inline bool initTouch();
+    inline bool initPointer();
 
     typedef BOOL (WINAPI *IsTouchWindow)(HWND, PULONG);
     typedef BOOL (WINAPI *RegisterTouchWindow)(HWND, ULONG);
     typedef BOOL (WINAPI *UnregisterTouchWindow)(HWND);
     typedef BOOL (WINAPI *GetTouchInputInfo)(HANDLE, UINT, PVOID, int);
     typedef BOOL (WINAPI *CloseTouchInputHandle)(HANDLE);
+    typedef BOOL (WINAPI *GetPointerType)(UINT32, POINTER_INPUT_TYPE *);
+    typedef BOOL (WINAPI *GetPointerPenInfo)(UINT32, POINTER_PEN_INFO *);
     typedef BOOL (WINAPI *SetLayeredWindowAttributes)(HWND, COLORREF, BYTE, DWORD);
     typedef BOOL (WINAPI *UpdateLayeredWindow)(HWND, HDC , const POINT *,
                  const SIZE *, HDC, const POINT *, COLORREF,
@@ -111,6 +114,8 @@ struct QWindowsUser32DLL
     UnregisterTouchWindow unregisterTouchWindow;
     GetTouchInputInfo getTouchInputInfo;
     CloseTouchInputHandle closeTouchInputHandle;
+    GetPointerType getPointerType;
+    GetPointerPenInfo getPointerPenInfo;
 
     // Windows Vista onwards
     SetProcessDPIAware setProcessDPIAware;
@@ -178,6 +183,7 @@ public:
 
     bool initTouch();
     bool initTouch(unsigned integrationOptions); // For calls from QWindowsIntegration::QWindowsIntegration() only.
+    bool initPointer();
 
     int defaultDPI() const;
 

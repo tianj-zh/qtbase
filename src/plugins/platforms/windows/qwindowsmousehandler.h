@@ -60,6 +60,9 @@ public:
     bool translateTouchEvent(QWindow *widget, HWND hwnd,
                              QtWindows::WindowsEventType t, MSG msg,
                              LRESULT *result);
+    bool translatePointerEvent(QWindow *widget, HWND hwnd,
+                               QtWindows::WindowsEventType t, MSG msg,
+                               LRESULT *result);
     bool translateGestureEvent(QWindow *window, HWND hwnd,
                                QtWindows::WindowsEventType,
                                MSG msg, LRESULT *);
