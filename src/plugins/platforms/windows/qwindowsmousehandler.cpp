@@ -260,7 +260,7 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
             // Capture is necessary so we don't get WM_MOUSELEAVEs to confuse matters.
             // This autocapture is released normally when button is released.
             if (!platformWindow->hasMouseCapture()) {
-                QWindowsWindow::baseWindowOf(window)->applyCursor();
+                platformWindow->applyCursor();
                 platformWindow->setMouseGrabEnabled(true);
                 platformWindow->setFlag(QWindowsWindow::AutoMouseCapture);
                 qCDebug(lcQpaEvents) << "Automatic mouse capture for missing buttondown event" << window;
@@ -277,7 +277,8 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
     // events, "click-through") can be considered as the window under mouse.
     QWindow *currentWindowUnderMouse = platformWindow->hasMouseCapture() ?
         QWindowsScreen::windowAt(globalPosition, CWP_SKIPINVISIBLE | CWP_SKIPTRANSPARENT) : window;
-
+    while (currentWindowUnderMouse && currentWindowUnderMouse->flags() & Qt::WindowTransparentForInput)
+        currentWindowUnderMouse = currentWindowUnderMouse->parent();
     // QTBUG-44332: When Qt is running at low integrity level and
     // a Qt Window is parented on a Window of a higher integrity process
     // using QWindow::fromWinId() (for example, Qt running in a browser plugin)
@@ -348,7 +349,7 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
                 m_trackedWindow = 0;
                 // We are not officially in any window, but we need to set some cursor to clear
                 // whatever cursor the left window had, so apply the cursor of the capture window.
-                QWindowsWindow::baseWindowOf(window)->applyCursor();
+                platformWindow->applyCursor();
             }
         }
         // Enter is needed if:
@@ -359,11 +360,17 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
                 && (!hasCapture || currentWindowUnderMouse == window))
             || (m_previousCaptureWindow && window != m_previousCaptureWindow && currentWindowUnderMouse
                 && currentWindowUnderMouse != m_previousCaptureWindow)) {
-            qCDebug(lcQpaEvents) << "Entering " << currentWindowUnderMouse;
-            QWindowsWindow::baseWindowOf(currentWindowUnderMouse)->applyCursor();
-            QWindowSystemInterface::handleEnterEvent(currentWindowUnderMouse,
-                                                     currentWindowUnderMouse->mapFromGlobal(globalPosition),
-                                                     globalPosition);
+            //qCDebug(lcQpaEvents) << "Entering " << currentWindowUnderMouse;
+            //QWindowsWindow::baseWindowOf(currentWindowUnderMouse)->applyCursor();
+            //QWindowSystemInterface::handleEnterEvent(currentWindowUnderMouse,
+            //                                         currentWindowUnderMouse->mapFromGlobal(globalPosition),
+            //                                         globalPosition);
+            QPoint localPosition;
+            if (QWindowsWindow *wumPlatformWindow = QWindowsWindow::baseWindowOf(currentWindowUnderMouse)) {
+                localPosition = wumPlatformWindow->mapFromGlobal(globalPosition);
+                wumPlatformWindow->applyCursor();
+            }
+            QWindowSystemInterface::handleEnterEvent(currentWindowUnderMouse, localPosition, globalPosition);
         }
         // We need to track m_windowUnderMouse separately from m_trackedWindow, as
         // Windows mouse tracking will not trigger WM_MOUSELEAVE for leaving window when
