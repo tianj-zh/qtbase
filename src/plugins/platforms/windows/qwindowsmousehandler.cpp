@@ -668,7 +668,6 @@ bool QWindowsMouseHandler::translateGestureEvent(QWindow *window, HWND hwnd,
 }
 
 // from bool QApplicationPrivate::translatePointerEvent()
-// from bool QApplicationPrivate::translatePointerEvent()
 bool QWindowsMouseHandler::translatePointerEvent(QWindow *window, HWND,
                                                QtWindows::WindowsEventType,
                                                MSG msg, LRESULT *)
