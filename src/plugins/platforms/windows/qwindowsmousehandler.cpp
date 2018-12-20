@@ -678,23 +678,24 @@ bool QWindowsMouseHandler::translatePointerEvent(QWindow *window, HWND,
 
     if (!QWindowsContext::instance()->initTouch()) {
         qWarning("Unable to initialize touch handling.");
-        return true;
+        return false;
     }
 
     if (!QWindowsContext::instance()->initPointer()) {
         qWarning("Unable to initialize pointer handling.");
-        return true;
+        return false;
     }
 
     const QScreen *screen = window->screen();
     if (!screen)
         screen = QGuiApplication::primaryScreen();
     if (!screen)
-        return true;
+        return false;
     const QRect screenGeometry = screen->geometry();
     UINT32 pointerId = GET_POINTERID_WPARAM(msg.wParam);
     POINTER_INPUT_TYPE pointerType = PT_POINTER;
     QWindowsContext::user32dll.getPointerType(pointerId, &pointerType);
+    bool handled = false;
     if (pointerType == PT_PEN && (msg.message == WM_POINTERUP || IS_POINTER_INCONTACT_WPARAM(msg.wParam))) {
         POINTER_PEN_INFO penInfo = {0};
         QWindowsContext::user32dll.getPointerPenInfo(pointerId, &penInfo);
@@ -742,12 +743,13 @@ bool QWindowsMouseHandler::translatePointerEvent(QWindow *window, HWND,
         QWindowSystemInterface::handleTouchEvent(window,
                                                  m_touchDevice,
                                                  touchPoints);
+        handled = true;
     }
 #else // !Q_OS_WINCE
     Q_UNUSED(window)
     Q_UNUSED(msg)
 #endif
-    return true;
+    return handled;
 
 }
 
