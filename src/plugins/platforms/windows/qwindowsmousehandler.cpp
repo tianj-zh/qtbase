@@ -492,14 +492,14 @@ bool QWindowsMouseHandler::translateTouchEvent(QWindow *window, HWND,
 
     if (!QWindowsContext::instance()->initTouch()) {
         qWarning("Unable to initialize touch handling.");
-        return true;
+        return false;
     }
 
     const QScreen *screen = window->screen();
     if (!screen)
         screen = QGuiApplication::primaryScreen();
     if (!screen)
-        return true;
+        return false;
     const QRect screenGeometry = screen->geometry();
 
     const int winTouchPointCount = int(msg.wParam);
@@ -565,6 +565,7 @@ bool QWindowsMouseHandler::translateTouchEvent(QWindow *window, HWND,
 #else // !Q_OS_WINCE
     Q_UNUSED(window)
     Q_UNUSED(msg)
+    return false;
 #endif
     return true;
 
