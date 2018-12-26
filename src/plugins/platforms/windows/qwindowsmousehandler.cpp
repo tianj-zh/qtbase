@@ -112,23 +112,17 @@ static inline void compressMouseMove(MSG *msg)
 
 static inline QTouchDevice *createTouchDevice()
 {
-    enum { QT_SM_TABLETPC = 86, QT_SM_DIGITIZER = 94, QT_SM_MAXIMUMTOUCHES = 95,
-           QT_NID_INTEGRATED_TOUCH = 0x01, QT_NID_EXTERNAL_TOUCH = 0x02, QT_NID_INTEGRATED_PEN = 0x04, QT_NID_EXTERNAL_PEN = 0x08,
-           QT_NID_MULTI_INPUT = 0x40, QT_NID_READY = 0x80 };
-
-    if (QSysInfo::windowsVersion() < QSysInfo::WV_WINDOWS7)
+    const int digitizers = GetSystemMetrics(SM_DIGITIZER);
+    if (!(digitizers & (NID_INTEGRATED_TOUCH | NID_EXTERNAL_TOUCH)))
         return 0;
-    const int digitizers = GetSystemMetrics(QT_SM_DIGITIZER);
-    if (!(digitizers & (QT_NID_MULTI_INPUT | QT_NID_INTEGRATED_TOUCH | QT_NID_EXTERNAL_TOUCH | QT_NID_INTEGRATED_PEN | QT_NID_EXTERNAL_PEN)))
-        return 0;
-    const int tabletPc = GetSystemMetrics(QT_SM_TABLETPC);
-    const int maxTouchPoints = GetSystemMetrics(QT_SM_MAXIMUMTOUCHES);
-    qCDebug(lcQpaEvents) << "Digitizers:" << hex << showbase << (digitizers & ~QT_NID_READY)
-        << "Ready:" << (digitizers & QT_NID_READY) << dec << noshowbase
+    const int tabletPc = GetSystemMetrics(SM_TABLETPC);
+    const int maxTouchPoints = GetSystemMetrics(SM_MAXIMUMTOUCHES);
+    qCDebug(lcQpaEvents) << "Digitizers:" << hex << showbase << (digitizers & ~NID_READY)
+        << "Ready:" << (digitizers & NID_READY) << dec << noshowbase
         << "Tablet PC:" << tabletPc << "Max touch points:" << maxTouchPoints;
     QTouchDevice *result = new QTouchDevice;
-    result->setType(/*digitizers & QT_NID_INTEGRATED_TOUCH
-                    ? */QTouchDevice::TouchScreen /*: QTouchDevice::TouchPad*/);
+    result->setType(digitizers & NID_INTEGRATED_TOUCH
+                    ? QTouchDevice::TouchScreen : QTouchDevice::TouchPad);
     QTouchDevice::Capabilities capabilities = QTouchDevice::Position | QTouchDevice::Area | QTouchDevice::NormalizedPosition;
     if (result->type() == QTouchDevice::TouchPad)
         capabilities |= QTouchDevice::MouseEmulation;
@@ -205,7 +199,7 @@ bool QWindowsMouseHandler::translateMouseEvent(QWindow *window, HWND hwnd,
     // since we do not want to ignore mouse events coming from a tablet.
     const quint64 extraInfo = quint64(GetMessageExtraInfo());
     if ((extraInfo & signatureMask) == miWpSignature) {
-        if ((extraInfo & 0x80) || QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS8) { // Bit 7 indicates touch event, else tablet pen.
+        if (extraInfo & 0x80) { // Bit 7 indicates touch event, else tablet pen.
             source = Qt::MouseEventSynthesizedBySystem;
             if (!passSynthesizedMouseEvents)
                 return false;
@@ -492,14 +486,14 @@ bool QWindowsMouseHandler::translateTouchEvent(QWindow *window, HWND,
 
     if (!QWindowsContext::instance()->initTouch()) {
         qWarning("Unable to initialize touch handling.");
-        return false;
+        return true;
     }
 
     const QScreen *screen = window->screen();
     if (!screen)
         screen = QGuiApplication::primaryScreen();
     if (!screen)
-        return false;
+        return true;
     const QRect screenGeometry = screen->geometry();
 
     const int winTouchPointCount = int(msg.wParam);
@@ -666,92 +660,6 @@ bool QWindowsMouseHandler::translateGestureEvent(QWindow *window, HWND hwnd,
     }
     return true;
 #endif // Q_OS_WINCE
-}
-
-// from bool QApplicationPrivate::translatePointerEvent()
-bool QWindowsMouseHandler::translatePointerEvent(QWindow *window, HWND,
-                                               QtWindows::WindowsEventType,
-                                               MSG msg, LRESULT *)
-{
-#ifndef Q_OS_WINCE
-    typedef QWindowSystemInterface::TouchPoint QTouchPoint;
-    typedef QList<QWindowSystemInterface::TouchPoint> QTouchPointList;
-
-    if (!QWindowsContext::instance()->initTouch()) {
-        qWarning("Unable to initialize touch handling.");
-        return false;
-    }
-
-    if (!QWindowsContext::instance()->initPointer()) {
-        qWarning("Unable to initialize pointer handling.");
-        return false;
-    }
-
-    const QScreen *screen = window->screen();
-    if (!screen)
-        screen = QGuiApplication::primaryScreen();
-    if (!screen)
-        return false;
-    const QRect screenGeometry = screen->geometry();
-    UINT32 pointerId = GET_POINTERID_WPARAM(msg.wParam);
-    POINTER_INPUT_TYPE pointerType = PT_POINTER;
-    QWindowsContext::user32dll.getPointerType(pointerId, &pointerType);
-    bool handled = false;
-    if (pointerType == PT_PEN && (msg.message == WM_POINTERUP || IS_POINTER_INCONTACT_WPARAM(msg.wParam))) {
-        POINTER_PEN_INFO penInfo = {0};
-        QWindowsContext::user32dll.getPointerPenInfo(pointerId, &penInfo);
-        QTouchPointList touchPoints;
-        touchPoints.reserve(1);
-        Qt::TouchPointStates allStates = 0;
-        int id = m_touchInputIDToTouchPointID.value(pointerId, -1);
-        if (id == -1) {
-            id = m_touchInputIDToTouchPointID.size();
-            m_touchInputIDToTouchPointID.insert(pointerId, id);
-        }
-        QTouchPoint touchPoint;
-        touchPoint.pressure = qreal(penInfo.pressure) / qreal(1024.);
-        touchPoint.id = id;
-        if (m_lastTouchPositions.contains(id))
-            touchPoint.normalPosition = m_lastTouchPositions.value(id);
-
-        QPointF screenPos = QPointF(qreal(GET_X_LPARAM(msg.lParam)), qreal(GET_Y_LPARAM(msg.lParam)));
-        //qDebug() << QString::fromLocal8Bit("  Pen x:%1 y:%2 p:%3").arg(screenPos.x()).arg(screenPos.y()).arg(touchPoint.pressure);
-        touchPoint.area.setSize(QSizeF(1.0, 1.0));
-        touchPoint.area.moveCenter(screenPos);
-        QPointF normalPosition = QPointF(screenPos.x() / screenGeometry.width(),
-                                         screenPos.y() / screenGeometry.height());
-        const bool stationaryTouchPoint = (normalPosition == touchPoint.normalPosition);
-        touchPoint.normalPosition = normalPosition;
-        if (msg.message == WM_POINTERDOWN) {
-            touchPoint.state = Qt::TouchPointPressed;
-            m_lastTouchPositions.insert(id, touchPoint.normalPosition);
-        }
-        else if (msg.message == WM_POINTERUP) {
-            touchPoint.state = Qt::TouchPointReleased;
-            m_lastTouchPositions.remove(id);
-        }
-        else if (msg.message == WM_POINTERUPDATE) {
-            touchPoint.state = (stationaryTouchPoint
-                     ? Qt::TouchPointStationary
-                     : Qt::TouchPointMoved);
-            m_lastTouchPositions.insert(id, touchPoint.normalPosition);
-        }
-        allStates |= touchPoint.state;
-        touchPoints.append(touchPoint);
-        // all touch points released, forget the ids we've seen, they may not be reused
-        if (allStates == Qt::TouchPointReleased)
-            m_touchInputIDToTouchPointID.clear();
-        QWindowSystemInterface::handleTouchEvent(window,
-                                                 m_touchDevice,
-                                                 touchPoints);
-        handled = true;
-    }
-#else // !Q_OS_WINCE
-    Q_UNUSED(window)
-    Q_UNUSED(msg)
-#endif
-    return handled;
-
 }
 
 QT_END_NAMESPACE

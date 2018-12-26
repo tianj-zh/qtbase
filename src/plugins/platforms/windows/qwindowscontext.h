@@ -78,16 +78,23 @@ struct QWindowsUser32DLL
 {
     QWindowsUser32DLL();
     inline void init();
-    inline bool initTouch();
-    inline bool initPointer();
+    inline bool supportsPointerApi();
 
+    typedef BOOL (WINAPI *EnableMouseInPointer)(BOOL);
+	typedef BOOL (WINAPI *GetPointerType)(UINT32, PVOID);
+    typedef BOOL (WINAPI *GetPointerInfo)(UINT32, PVOID);
+	typedef BOOL (WINAPI *GetPointerDeviceRects)(HANDLE, RECT *, RECT *);
+    typedef BOOL (WINAPI *GetPointerTouchInfo)(UINT32, PVOID);
+    typedef BOOL (WINAPI *GetPointerFrameTouchInfo)(UINT32, UINT32 *, PVOID);
+	typedef BOOL (WINAPI *GetPointerFrameTouchInfoHistory)(UINT32, UINT32 *, UINT32 *, PVOID);
+	typedef BOOL (WINAPI *GetPointerPenInfo)(UINT32, PVOID);
+    typedef BOOL (WINAPI *GetPointerPenInfoHistory)(UINT32, UINT32 *, PVOID);
+    typedef BOOL (WINAPI *SkipPointerFrameMessages)(UINT32);
     typedef BOOL (WINAPI *IsTouchWindow)(HWND, PULONG);
     typedef BOOL (WINAPI *RegisterTouchWindow)(HWND, ULONG);
     typedef BOOL (WINAPI *UnregisterTouchWindow)(HWND);
     typedef BOOL (WINAPI *GetTouchInputInfo)(HANDLE, UINT, PVOID, int);
     typedef BOOL (WINAPI *CloseTouchInputHandle)(HANDLE);
-    typedef BOOL (WINAPI *GetPointerType)(UINT32, POINTER_INPUT_TYPE *);
-    typedef BOOL (WINAPI *GetPointerPenInfo)(UINT32, POINTER_PEN_INFO *);
     typedef BOOL (WINAPI *SetLayeredWindowAttributes)(HWND, COLORREF, BYTE, DWORD);
     typedef BOOL (WINAPI *UpdateLayeredWindow)(HWND, HDC , const POINT *,
                  const SIZE *, HDC, const POINT *, COLORREF,
@@ -100,6 +107,25 @@ struct QWindowsUser32DLL
     typedef BOOL (WINAPI *GetDisplayAutoRotationPreferences)(DWORD *);
     typedef BOOL (WINAPI *SetDisplayAutoRotationPreferences)(DWORD);
 
+    // Touch functions from Windows 7 onwards (also for use with Q_CC_MSVC).
+    IsTouchWindow isTouchWindow;
+    RegisterTouchWindow registerTouchWindow;
+    UnregisterTouchWindow unregisterTouchWindow;
+	GetTouchInputInfo getTouchInputInfo;
+    CloseTouchInputHandle closeTouchInputHandle;
+	
+    // Windows pointer functions (Windows 8 or later).
+    EnableMouseInPointer enableMouseInPointer = nullptr;
+    GetPointerType getPointerType = nullptr;
+    GetPointerInfo getPointerInfo = nullptr;
+    GetPointerDeviceRects getPointerDeviceRects = nullptr;
+    GetPointerTouchInfo getPointerTouchInfo = nullptr;
+    GetPointerFrameTouchInfo getPointerFrameTouchInfo = nullptr;
+    GetPointerFrameTouchInfoHistory getPointerFrameTouchInfoHistory = nullptr;
+    GetPointerPenInfo getPointerPenInfo = nullptr;
+    GetPointerPenInfoHistory getPointerPenInfoHistory = nullptr;
+    SkipPointerFrameMessages skipPointerFrameMessages = nullptr;
+	
     // Functions missing in Q_CC_GNU stub libraries.
     SetLayeredWindowAttributes setLayeredWindowAttributes;
     UpdateLayeredWindow updateLayeredWindow;
@@ -107,15 +133,6 @@ struct QWindowsUser32DLL
     // Functions missing in older versions of Windows
     UpdateLayeredWindowIndirect updateLayeredWindowIndirect;
     IsHungAppWindow isHungAppWindow;
-
-    // Touch functions from Windows 7 onwards (also for use with Q_CC_MSVC).
-    IsTouchWindow isTouchWindow;
-    RegisterTouchWindow registerTouchWindow;
-    UnregisterTouchWindow unregisterTouchWindow;
-    GetTouchInputInfo getTouchInputInfo;
-    CloseTouchInputHandle closeTouchInputHandle;
-    GetPointerType getPointerType;
-    GetPointerPenInfo getPointerPenInfo;
 
     // Windows Vista onwards
     SetProcessDPIAware setProcessDPIAware;
@@ -172,7 +189,8 @@ public:
     enum SystemInfoFlags
     {
         SI_RTL_Extensions = 0x1,
-        SI_SupportsTouch = 0x2
+        SI_SupportsTouch = 0x2,
+        SI_SupportsPointer = 0x4,
     };
 
     // Verbose flag set by environment variable QT_QPA_VERBOSE
@@ -183,7 +201,8 @@ public:
 
     bool initTouch();
     bool initTouch(unsigned integrationOptions); // For calls from QWindowsIntegration::QWindowsIntegration() only.
-    bool initPointer();
+    bool initTablet(unsigned integrationOptions);
+    bool initPointer(unsigned integrationOptions);
 
     int defaultDPI() const;
 

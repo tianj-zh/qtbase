@@ -37,6 +37,7 @@
 #include "qwindowswindow.h"
 #include "qwindowskeymapper.h"
 #include "qwindowsmousehandler.h"
+#include "qwindowspointerhandler.h"
 #include "qtwindowsglobal.h"
 #include "qwindowsmime.h"
 #include "qwindowsinputcontext.h"
@@ -138,6 +139,13 @@ static inline QWindowsSessionManager *platformSessionManager() {
     QSessionManagerPrivate *managerPrivate = static_cast<QSessionManagerPrivate*>(QObjectPrivate::get(guiPrivate->session_manager));
     return static_cast<QWindowsSessionManager *>(managerPrivate->platformSessionManager);
 }
+
+static inline bool sessionManagerInteractionBlocked()
+{
+    return platformSessionManager()->isInteractionBlocked();
+}
+#else
+static inline bool sessionManagerInteractionBlocked() { return false; }
 #endif
 
 /*!
@@ -189,29 +197,34 @@ void QWindowsUser32DLL::init()
     }
     getDisplayAutoRotationPreferences = (GetDisplayAutoRotationPreferences)library.resolve("GetDisplayAutoRotationPreferences");
     setDisplayAutoRotationPreferences = (SetDisplayAutoRotationPreferences)library.resolve("SetDisplayAutoRotationPreferences");
-}
-
-bool QWindowsUser32DLL::initTouch()
-{
-    if (!isTouchWindow && QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS7) {
-        QSystemLibrary library(QStringLiteral("user32"));
+	
+	if (QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS7) {
         isTouchWindow = (IsTouchWindow)(library.resolve("IsTouchWindow"));
         registerTouchWindow = (RegisterTouchWindow)(library.resolve("RegisterTouchWindow"));
         unregisterTouchWindow = (UnregisterTouchWindow)(library.resolve("UnregisterTouchWindow"));
         getTouchInputInfo = (GetTouchInputInfo)(library.resolve("GetTouchInputInfo"));
         closeTouchInputHandle = (CloseTouchInputHandle)(library.resolve("CloseTouchInputHandle"));
+	}
+	
+	if (QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS8) {
+        enableMouseInPointer = (EnableMouseInPointer)library.resolve("EnableMouseInPointer");
+        getPointerType = (GetPointerType)library.resolve("GetPointerType");
+        getPointerInfo = (GetPointerInfo)library.resolve("GetPointerInfo");
+        getPointerDeviceRects = (GetPointerDeviceRects)library.resolve("GetPointerDeviceRects");
+        getPointerTouchInfo = (GetPointerTouchInfo)library.resolve("GetPointerTouchInfo");
+        getPointerFrameTouchInfo = (GetPointerFrameTouchInfo)library.resolve("GetPointerFrameTouchInfo");
+        getPointerFrameTouchInfoHistory = (GetPointerFrameTouchInfoHistory)library.resolve("GetPointerFrameTouchInfoHistory");
+        getPointerPenInfo = (GetPointerPenInfo)library.resolve("GetPointerPenInfo");
+        getPointerPenInfoHistory = (GetPointerPenInfoHistory)library.resolve("GetPointerPenInfoHistory");
+        skipPointerFrameMessages = (SkipPointerFrameMessages)library.resolve("SkipPointerFrameMessages");
     }
-    return isTouchWindow && registerTouchWindow && unregisterTouchWindow && getTouchInputInfo && closeTouchInputHandle;
 }
 
-bool QWindowsUser32DLL::initPointer()
+bool QWindowsUser32DLL::supportsPointerApi()
 {
-    if (QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS8) {
-        QSystemLibrary library(QStringLiteral("user32"));
-        getPointerPenInfo = (GetPointerPenInfo)(library.resolve("GetPointerPenInfo"));
-        getPointerType = (GetPointerType)(library.resolve("GetPointerType"));
-    }
-    return getPointerPenInfo && getPointerType;
+    return enableMouseInPointer && getPointerType && getPointerInfo && getPointerDeviceRects
+            && getPointerTouchInfo && getPointerFrameTouchInfo && getPointerFrameTouchInfoHistory
+            && getPointerPenInfo && getPointerPenInfoHistory && skipPointerFrameMessages;
 }
 
 /*!
@@ -290,10 +303,11 @@ struct QWindowsContextPrivate {
     unsigned m_systemInfo;
     QSet<QString> m_registeredWindowClassNames;
     HandleBaseWindowHash m_windows;
-    HDC m_displayContext;
-    int m_defaultDPI;
+    HDC m_displayContext = 0;
+    int m_defaultDPI = 96;
     QWindowsKeyMapper m_keyMapper;
     QWindowsMouseHandler m_mouseHandler;
+    QWindowsPointerHandler m_pointerHandler;
     QWindowsMimeConverter m_mimeConverter;
     QWindowsScreenManager m_screenManager;
     QSharedPointer<QWindowCreationContext> m_creationContext;
@@ -301,15 +315,13 @@ struct QWindowsContextPrivate {
     QScopedPointer<QWindowsTabletSupport> m_tabletSupport;
 #endif
     const HRESULT m_oleInitializeResult;
-    const QByteArray m_eventType;
-    QWindow *m_lastActiveWindow;
-    bool m_asyncExpose;
+    QWindow *m_lastActiveWindow = nullptr;
+    bool m_asyncExpose = false;
 };
 
 QWindowsContextPrivate::QWindowsContextPrivate()
     : m_systemInfo(0)
     , m_oleInitializeResult(OleInitialize(NULL))
-    , m_eventType(QByteArrayLiteral("windows_generic_MSG"))
     , m_lastActiveWindow(0), m_asyncExpose(0)
 {
     const QSysInfo::WinVersion ver = QSysInfo::windowsVersion();
@@ -318,7 +330,7 @@ QWindowsContextPrivate::QWindowsContextPrivate()
     QWindowsContext::shell32dll.init();
     QWindowsContext::shcoredll.init();
 
-    if (m_mouseHandler.touchDevice() && QWindowsContext::user32dll.initTouch())
+    if (m_pointerHandler.touchDevice() || m_mouseHandler.touchDevice())
         m_systemInfo |= QWindowsContext::SI_SupportsTouch;
 #endif // !Q_OS_WINCE
     m_displayContext = GetDC(0);
@@ -344,10 +356,6 @@ QWindowsContext::QWindowsContext() :
     const QByteArray bv = qgetenv("QT_QPA_VERBOSE");
     if (!bv.isEmpty())
         QLoggingCategory::setFilterRules(QString::fromLocal8Bit(bv));
-#if !defined(QT_NO_TABLETEVENT) && !defined(Q_OS_WINCE)
-    d->m_tabletSupport.reset(QWindowsTabletSupport::create());
-    qCDebug(lcQpaTablet) << "Tablet support: " << (d->m_tabletSupport.isNull() ? QStringLiteral("None") : d->m_tabletSupport->description());
-#endif
 }
 
 QWindowsContext::~QWindowsContext()
@@ -373,33 +381,56 @@ bool QWindowsContext::initTouch(unsigned integrationOptions)
     if (d->m_systemInfo & QWindowsContext::SI_SupportsTouch)
         return true;
 
-    QTouchDevice *touchDevice = d->m_mouseHandler.ensureTouchDevice();
+    QTouchDevice *touchDevice = (d->m_systemInfo & QWindowsContext::SI_SupportsPointer) ?
+                d->m_pointerHandler.ensureTouchDevice() : d->m_mouseHandler.ensureTouchDevice();
     if (!touchDevice)
         return false;
 
-#ifndef Q_OS_WINCE
-    if (!QWindowsContext::user32dll.initTouch()) {
-        delete touchDevice;
-        return false;
+    if (d->m_systemInfo & QWindowsContext::SI_SupportsPointer) {
+        QWindowSystemInterfacePrivate::TabletEvent::setPlatformSynthesizesMouse(false);
+    } else {
+        if (!(integrationOptions & QWindowsIntegration::DontPassOsMouseEventsSynthesizedFromTouch))
+            touchDevice->setCapabilities(touchDevice->capabilities() | QTouchDevice::MouseEmulation);
     }
-#endif // !Q_OS_WINCE
-
-    if (!(integrationOptions & QWindowsIntegration::DontPassOsMouseEventsSynthesizedFromTouch))
-        touchDevice->setCapabilities(touchDevice->capabilities() | QTouchDevice::MouseEmulation);
 
     QWindowSystemInterface::registerTouchDevice(touchDevice);
 
     d->m_systemInfo |= QWindowsContext::SI_SupportsTouch;
+
+    // A touch device was plugged while the app is running. Register all windows for touch.
+    if (QGuiApplicationPrivate::is_app_running) {
+        for (QWindowsWindow *w : qAsConst(d->m_windows))
+            w->registerTouchWindow();
+    }
+
     return true;
 }
 
-bool QWindowsContext::initPointer()
+bool QWindowsContext::initTablet(unsigned integrationOptions)
 {
-#ifndef Q_OS_WINCE
-    if (!QWindowsContext::user32dll.initPointer()) {
+    Q_UNUSED(integrationOptions);
+#if !defined(QT_NO_TABLETEVENT) && !defined(Q_OS_WINCE)
+    d->m_tabletSupport.reset(QWindowsTabletSupport::create());
+    qCDebug(lcQpaTablet) << "Tablet support: " << (d->m_tabletSupport.isNull() ? QStringLiteral("None") : d->m_tabletSupport->description());
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool QWindowsContext::initPointer(unsigned integrationOptions)
+{
+    if (integrationOptions & QWindowsIntegration::DontUseWMPointer)
         return false;
-    }
-#endif // !Q_OS_WINCE
+
+    if (QSysInfo::windowsVersion() < QSysInfo::WV_WINDOWS8)
+        return false;
+
+    if (!QWindowsContext::user32dll.supportsPointerApi())
+        return false;
+
+    QWindowsContext::user32dll.enableMouseInPointer(TRUE);
+    d->m_systemInfo |= QWindowsContext::SI_SupportsPointer;
     return true;
 }
 
@@ -711,12 +742,16 @@ QWindow *QWindowsContext::findWindow(HWND hwnd) const
 
 QWindow *QWindowsContext::windowUnderMouse() const
 {
-    return d->m_mouseHandler.windowUnderMouse();
+    return (d->m_systemInfo & QWindowsContext::SI_SupportsPointer) ?
+        d->m_pointerHandler.windowUnderMouse() : d->m_mouseHandler.windowUnderMouse();
 }
 
 void QWindowsContext::clearWindowUnderMouse()
 {
-    d->m_mouseHandler.clearWindowUnderMouse();
+    if (d->m_systemInfo & QWindowsContext::SI_SupportsPointer)
+        d->m_pointerHandler.clearWindowUnderMouse();
+    else
+        d->m_mouseHandler.clearWindowUnderMouse();
 }
 
 /*!
@@ -929,6 +964,32 @@ static inline QWindowsInputContext *windowsInputContext()
     return qobject_cast<QWindowsInputContext *>(QWindowsIntegration::instance()->inputContext());
 }
 
+static inline bool isInputMessage(UINT m)
+{
+    switch (m) {
+    case WM_IME_STARTCOMPOSITION:
+    case WM_IME_ENDCOMPOSITION:
+    case WM_IME_COMPOSITION:
+    case WM_INPUT:
+    case WM_TOUCH:
+    case WM_MOUSEHOVER:
+    case WM_MOUSELEAVE:
+    case WM_NCMOUSEHOVER:
+    case WM_NCMOUSELEAVE:
+    case WM_SIZING:
+    case WM_MOVING:
+    case WM_SYSCOMMAND:
+    case WM_COMMAND:
+    case WM_DWMNCRENDERINGCHANGED:
+    case WM_PAINT:
+        return true;
+    default:
+        break;
+    }
+    return (m >= WM_MOUSEFIRST && m <= WM_MOUSELAST)
+        || (m >= WM_NCMOUSEMOVE && m <= WM_NCXBUTTONDBLCLK)
+        || (m >= WM_KEYFIRST && m <= WM_KEYLAST);
+}
 /*!
      \brief Main windows procedure registered for windows.
 
@@ -937,7 +998,9 @@ static inline QWindowsInputContext *windowsInputContext()
 
 bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
                                   QtWindows::WindowsEventType et,
-                                  WPARAM wParam, LPARAM lParam, LRESULT *result)
+                                  WPARAM wParam, LPARAM lParam,
+                                  LRESULT *result,
+                                  QWindowsWindow **platformWindowPtr)
 {
     *result = 0;
 
@@ -961,22 +1024,16 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
 #endif
     }
 
-    // Run the native event filters.
-    long filterResult = 0;
-    QAbstractEventDispatcher* dispatcher = QAbstractEventDispatcher::instance();
-    if (dispatcher && dispatcher->filterNativeEvent(d->m_eventType, &msg, &filterResult)) {
-        *result = LRESULT(filterResult);
-        return true;
-    }
-
     QWindowsWindow *platformWindow = findPlatformWindow(hwnd);
-    if (platformWindow) {
-        filterResult = 0;
-        if (QWindowSystemInterface::handleNativeEvent(platformWindow->window(), d->m_eventType, &msg, &filterResult)) {
-            *result = LRESULT(filterResult);
-            return true;
-        }
-    }
+    *platformWindowPtr = platformWindow;
+
+    // Run the native event filters. QTBUG-67095: Exclude input messages which are sent
+    // by QEventDispatcherWin32::processEvents()
+    if (!isInputMessage(msg.message) && filterNativeEvent(&msg, result))
+        return true;
+
+    if (platformWindow && filterNativeEvent(platformWindow->window(), &msg, result))
+        return true;
     if (et & QtWindows::InputMethodEventFlag) {
         QWindowsInputContext *windowsInputContext = ::windowsInputContext();
         // Disable IME assuming this is a special implementation hooking into keyboard input.
@@ -1001,11 +1058,9 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
 
     switch (et) {
     case QtWindows::GestureEvent:
-#if !defined(Q_OS_WINCE) && !defined(QT_NO_SESSIONMANAGER)
-        return platformSessionManager()->isInteractionBlocked() ? true : d->m_mouseHandler.translateGestureEvent(platformWindow->window(), hwnd, et, msg, result);
-#else
-        return d->m_mouseHandler.translateGestureEvent(platformWindow->window(), hwnd, et, msg, result);
-#endif
+    	if (!(d->m_systemInfo & QWindowsContext::SI_SupportsPointer))
+            return sessionManagerInteractionBlocked() || d->m_mouseHandler.translateGestureEvent(platformWindow->window(), hwnd, et, msg, result);
+		break;
     case QtWindows::InputMethodOpenCandidateWindowEvent:
     case QtWindows::InputMethodCloseCandidateWindowEvent:
         // TODO: Release/regrab mouse if a popup has mouse grab.
@@ -1028,9 +1083,9 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
         return false;
 #endif
     case QtWindows::DisplayChangedEvent:
-        return d->m_screenManager.handleDisplayChange(wParam, lParam);
         if (QWindowsTheme *t = QWindowsTheme::instance())
             t->displayChanged();
+        return d->m_screenManager.handleDisplayChange(wParam, lParam);
     case QtWindows::SettingChangedEvent:
         return d->m_screenManager.handleScreenChanges();
     default:
@@ -1076,6 +1131,13 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
     }
 
     switch (et) {
+    case QtWindows::DeviceChangeEvent:
+        if (d->m_systemInfo & QWindowsContext::SI_SupportsTouch)
+            break;
+        // See if there are any touch devices added
+        if (wParam == DBT_DEVNODES_CHANGED)
+            initTouch();
+        break;
     case QtWindows::KeyboardLayoutChangeEvent:
         if (QWindowsInputContext *wic = windowsInputContext())
             wic->handleInputLanguageChanged(wParam, lParam); // fallthrough intended.
@@ -1085,10 +1147,8 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
     case QtWindows::InputMethodKeyDownEvent:
     case QtWindows::AppCommandEvent:
 #if !defined(Q_OS_WINCE) && !defined(QT_NO_SESSIONMANAGER)
-        return platformSessionManager()->isInteractionBlocked() ? true : d->m_keyMapper.translateKeyEvent(platformWindow->window(), hwnd, msg, result);
-#else
-        return d->m_keyMapper.translateKeyEvent(platformWindow->window(), hwnd, msg, result);
-#endif
+        return sessionManagerInteractionBlocked() || d->m_keyMapper.translateKeyEvent(platformWindow->window(), hwnd, msg, result);
+
     case QtWindows::MoveEvent:
         platformWindow->handleMoved();
         return true;
@@ -1109,12 +1169,12 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
     case QtWindows::ExposeEvent:
         return platformWindow->handleWmPaint(hwnd, message, wParam, lParam);
     case QtWindows::NonClientMouseEvent:
-        if (platformWindow->frameStrutEventsEnabled())
-#if !defined(Q_OS_WINCE) && !defined(QT_NO_SESSIONMANAGER)
-            return platformSessionManager()->isInteractionBlocked() ? true : d->m_mouseHandler.translateMouseEvent(platformWindow->window(), hwnd, et, msg, result);
-#else
-            return d->m_mouseHandler.translateMouseEvent(platformWindow->window(), hwnd, et, msg, result);
-#endif
+        if (!(d->m_systemInfo & QWindowsContext::SI_SupportsPointer) && platformWindow->frameStrutEventsEnabled())
+            return sessionManagerInteractionBlocked() || d->m_mouseHandler.translateMouseEvent(platformWindow->window(), hwnd, et, msg, result);
+        break;
+    case QtWindows::NonClientPointerEvent:
+        if ((d->m_systemInfo & QWindowsContext::SI_SupportsPointer) && platformWindow->frameStrutEventsEnabled())
+            return sessionManagerInteractionBlocked() || d->m_pointerHandler.translatePointerEvent(platformWindow->window(), hwnd, et, msg, result);
         break;
 /* the mouse tracking on windows already handles the reset of the cursor
  * and does not like somebody else handling it.
@@ -1128,31 +1188,24 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
         }
 #endif
     case QtWindows::ScrollEvent:
-#if !defined(Q_OS_WINCE) && !defined(QT_NO_SESSIONMANAGER)
-        return platformSessionManager()->isInteractionBlocked() ? true : d->m_mouseHandler.translateScrollEvent(platformWindow->window(), hwnd, msg, result);
-#else
-        return d->m_mouseHandler.translateScrollEvent(platformWindow->window(), hwnd, msg, result);
-#endif
+        if (!(d->m_systemInfo & QWindowsContext::SI_SupportsPointer))
+            return sessionManagerInteractionBlocked() || d->m_mouseHandler.translateScrollEvent(platformWindow->window(), hwnd, msg, result);
+        break;
     case QtWindows::MouseWheelEvent:
     case QtWindows::MouseEvent:
     case QtWindows::LeaveEvent:
-#if !defined(Q_OS_WINCE) && !defined(QT_NO_SESSIONMANAGER)
-        return platformSessionManager()->isInteractionBlocked() ? true : d->m_mouseHandler.translateMouseEvent(platformWindow->window(), hwnd, et, msg, result);
-#else
-        return d->m_mouseHandler.translateMouseEvent(platformWindow->window(), hwnd, et, msg, result);
-#endif
+	     if (!(d->m_systemInfo & QWindowsContext::SI_SupportsPointer))
+            return sessionManagerInteractionBlocked() || d->m_mouseHandler.translateMouseEvent(platformWindow->window(), hwnd, et, msg, result);
+		 else 
+            return sessionManagerInteractionBlocked() || d->m_pointerHandler.translateMouseEvent(platformWindow->window(), hwnd, et, msg, result);
     case QtWindows::TouchEvent:
-#if !defined(Q_OS_WINCE) && !defined(QT_NO_SESSIONMANAGER)
-        return platformSessionManager()->isInteractionBlocked() ? true : d->m_mouseHandler.translateTouchEvent(platformWindow->window(), hwnd, et, msg, result);
-#else
-        return d->m_mouseHandler.translateTouchEvent(platformWindow->window(), hwnd, et, msg, result);
-#endif
+        if (!(d->m_systemInfo & QWindowsContext::SI_SupportsPointer))
+            return sessionManagerInteractionBlocked() || d->m_mouseHandler.translateTouchEvent(platformWindow->window(), hwnd, et, msg, result);
+        break;
     case QtWindows::PointerEvent:
-#if !defined(Q_OS_WINCE) && !defined(QT_NO_SESSIONMANAGER)
-        return platformSessionManager()->isInteractionBlocked() ? true : d->m_mouseHandler.translatePointerEvent(platformWindow->window(), hwnd, et, msg, result);
-#else
-        return d->m_mouseHandler.translatePointerEvent(platformWindow->window(), hwnd, et, msg, result);
-#endif
+        if (d->m_systemInfo & QWindowsContext::SI_SupportsPointer)
+            return sessionManagerInteractionBlocked() || d->m_pointerHandler.translatePointerEvent(platformWindow->window(), hwnd, et, msg, result);
+        break;
     case QtWindows::FocusInEvent: // see QWindowsWindow::requestActivateWindow().
     case QtWindows::FocusOutEvent:
         handleFocusEvent(et, platformWindow);
@@ -1196,6 +1249,7 @@ bool QWindowsContext::windowsProc(HWND hwnd, UINT message,
                 QWindowsWindow::baseWindowOf(modalWindow)->alertWindow();
         break;
     case QtWindows::MouseActivateWindowEvent:
+    case QtWindows::PointerActivateWindowEvent:
         if (platformWindow->window()->flags() & Qt::WindowDoesNotAcceptFocus) {
             *result = LRESULT(MA_NOACTIVATE);
             return true;
@@ -1342,7 +1396,62 @@ void QWindowsContext::setAsyncExpose(bool value)
 
 QTouchDevice *QWindowsContext::touchDevice() const
 {
-    return d->m_mouseHandler.touchDevice();
+    return (d->m_systemInfo & QWindowsContext::SI_SupportsPointer) ?
+        d->m_pointerHandler.touchDevice() : d->m_mouseHandler.touchDevice();
+}
+
+static DWORD readDwordRegistrySetting(const wchar_t *regKey, const wchar_t *subKey, DWORD defaultValue)
+{
+    DWORD result = defaultValue;
+    HKEY handle;
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, regKey, 0, KEY_READ, &handle) == ERROR_SUCCESS) {
+        DWORD type;
+        if (RegQueryValueEx(handle, subKey, 0, &type, 0, 0) == ERROR_SUCCESS && type == REG_DWORD) {
+            DWORD value;
+            DWORD size = sizeof(result);
+            if (RegQueryValueEx(handle, subKey, 0, 0, reinterpret_cast<unsigned char *>(&value), &size) == ERROR_SUCCESS)
+                result = value;
+        }
+        RegCloseKey(handle);
+    }
+    return result;
+}
+
+DWORD QWindowsContext::readAdvancedExplorerSettings(const wchar_t *subKey, DWORD defaultValue)
+{
+    return readDwordRegistrySetting(L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+                                    subKey, defaultValue);
+}
+
+static inline bool isEmptyRect(const RECT &rect)
+{
+    return rect.right - rect.left == 0 && rect.bottom - rect.top == 0;
+}
+
+static inline QMargins marginsFromRects(const RECT &frame, const RECT &client)
+{
+    return QMargins(client.left - frame.left, client.top - frame.top,
+                    frame.right - client.right, frame.bottom - client.bottom);
+}
+
+static RECT rectFromNcCalcSize(UINT message, WPARAM wParam, LPARAM lParam, int n)
+{
+    RECT result = {0, 0, 0, 0};
+    if (message == WM_NCCALCSIZE && wParam)
+        result = reinterpret_cast<const NCCALCSIZE_PARAMS *>(lParam)->rgrc[n];
+    return result;
+}
+
+static inline bool isMinimized(HWND hwnd)
+{
+    WINDOWPLACEMENT windowPlacement;
+    windowPlacement.length = sizeof(WINDOWPLACEMENT);
+    return GetWindowPlacement(hwnd, &windowPlacement) && windowPlacement.showCmd == SW_SHOWMINIMIZED;
+}
+
+static inline bool isTopLevel(HWND hwnd)
+{
+    return (GetWindowLongPtr(hwnd, GWL_STYLE) & WS_CHILD) == 0;
 }
 
 /*!
@@ -1358,17 +1467,64 @@ extern "C" LRESULT QT_WIN_CALLBACK qWindowsWndProc(HWND hwnd, UINT message, WPAR
 {
     LRESULT result;
     const QtWindows::WindowsEventType et = windowsEventType(message, wParam, lParam);
-    const bool handled = QWindowsContext::instance()->windowsProc(hwnd, message, et, wParam, lParam, &result);
+    QWindowsWindow *platformWindow = nullptr;
+    const RECT ncCalcSizeFrame = rectFromNcCalcSize(message, wParam, lParam, 0);
+    const bool handled = QWindowsContext::instance()->windowsProc(hwnd, message, et, wParam, lParam, &result, &platformWindow);
     if (QWindowsContext::verbose > 1 && lcQpaEvents().isDebugEnabled()) {
         if (const char *eventName = QWindowsGuiEventDispatcher::windowsMessageName(message)) {
-            qCDebug(lcQpaEvents) << "EVENT: hwd=" << hwnd << eventName << hex << "msg=0x"  << message
-                << "et=0x" << et << dec << "wp=" << int(wParam) << "at"
-                << GET_X_LPARAM(lParam) << GET_Y_LPARAM(lParam) << "handled=" << handled;
+            qCDebug(lcQpaEvents).nospace() << "EVENT: hwd=" << hwnd << ' ' << eventName
+                << " msg=0x" << hex << message << " et=0x" << et << dec << " wp="
+                << int(wParam) << " at " << GET_X_LPARAM(lParam) << ','
+                << GET_Y_LPARAM(lParam) << " handled=" << handled;
         }
     }
     if (!handled)
         result = DefWindowProc(hwnd, message, wParam, lParam);
+
+    // Capture WM_NCCALCSIZE on top level windows and obtain the window margins by
+    // subtracting the rectangles before and after processing. This will correctly
+    // capture client code overriding the message and allow for per-monitor margins
+    // for High DPI (QTBUG-53255, QTBUG-40578).
+    if (message == WM_NCCALCSIZE && !isEmptyRect(ncCalcSizeFrame) && isTopLevel(hwnd) && !isMinimized(hwnd)) {
+        const QMargins margins =
+            marginsFromRects(ncCalcSizeFrame, rectFromNcCalcSize(message, wParam, lParam, 0));
+        if (margins.left() >= 0) {
+            if (platformWindow) {
+                platformWindow->setFullFrameMargins(margins);
+            } else {
+                const QSharedPointer<QWindowCreationContext> ctx = QWindowsContext::instance()->windowCreationContext();
+                if (!ctx.isNull())
+                    ctx->margins = margins;
+            }
+        }
+    }
     return result;
+}
+
+
+static inline QByteArray nativeEventType() { return QByteArrayLiteral("windows_generic_MSG"); }
+
+// Send to QAbstractEventDispatcher
+bool QWindowsContext::filterNativeEvent(MSG *msg, LRESULT *result)
+{
+    QAbstractEventDispatcher *dispatcher = QAbstractEventDispatcher::instance();
+    long filterResult = 0;
+    if (dispatcher && dispatcher->filterNativeEvent(nativeEventType(), msg, &filterResult)) {
+        *result = LRESULT(filterResult);
+        return true;
+    }
+    return false;
+}
+
+// Send to QWindowSystemInterface
+bool QWindowsContext::filterNativeEvent(QWindow *window, MSG *msg, LRESULT *result)
+{
+    long filterResult = 0;
+    if (QWindowSystemInterface::handleNativeEvent(window, nativeEventType(), msg, &filterResult)) {
+        *result = LRESULT(filterResult);
+        return true;
+    }
+    return false;
 }
 
 QT_END_NAMESPACE

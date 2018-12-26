@@ -30,6 +30,7 @@ SOURCES += \
     $$PWD/qwindowsfontengine.cpp \
     $$PWD/qwindowsfontdatabase.cpp \
     $$PWD/qwindowsmousehandler.cpp \
+    $$PWD/qwindowspointerhandler.cpp \
     $$PWD/qwindowsole.cpp \
     $$PWD/qwindowsmime.cpp \
     $$PWD/qwindowsinternalmimedata.cpp \
@@ -51,6 +52,7 @@ HEADERS += \
     $$PWD/qwindowsfontengine.h \
     $$PWD/qwindowsfontdatabase.h \
     $$PWD/qwindowsmousehandler.h \
+    $$PWD/qwindowspointerhandler.h \
     $$PWD/qtwindowsglobal.h \
     $$PWD/qtwindows_additional.h \
     $$PWD/qwindowsole.h \

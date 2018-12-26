@@ -60,9 +60,6 @@ public:
     bool translateTouchEvent(QWindow *widget, HWND hwnd,
                              QtWindows::WindowsEventType t, MSG msg,
                              LRESULT *result);
-    bool translatePointerEvent(QWindow *widget, HWND hwnd,
-                               QtWindows::WindowsEventType t, MSG msg,
-                               LRESULT *result);
     bool translateGestureEvent(QWindow *window, HWND hwnd,
                                QtWindows::WindowsEventType,
                                MSG msg, LRESULT *);
@@ -85,9 +82,9 @@ private:
     QPointer<QWindow> m_trackedWindow;
     QHash<DWORD, int> m_touchInputIDToTouchPointID;
     QHash<int, QPointF> m_lastTouchPositions;
-    QTouchDevice *m_touchDevice;
-    bool m_leftButtonDown;
-    QWindow *m_previousCaptureWindow;
+    QTouchDevice *m_touchDevice = nullptr;
+    bool m_leftButtonDown = false;
+    QWindow *m_previousCaptureWindow = nullptr;
 #ifdef Q_OS_WINCE
 //This is required to send a touch up if we don't get a second touch position any more
     bool m_had2ndTouchPoint;
